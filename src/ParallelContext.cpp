@@ -1,9 +1,11 @@
 #include "ParallelContext.hpp"
+#include <memory>
 
 #include "Options.hpp"
 
 #ifdef _RAXML_MPI
 #include <mpi-ext.h>
+#include "Profiler.hpp"
 #endif
 
 #include <signal.h>
@@ -55,6 +57,10 @@ void ParallelContext::fail(size_t rankId, uint64_t on_nth_call) {
     }
   }
 }
+#endif
+
+#ifdef _RAXML_PROFILE
+LogBinningProfiler mpiTimer("MPI");
 #endif
 
 void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
@@ -343,9 +349,25 @@ void ParallelContext::finalize(bool force)
       // Why bother checking for dead ranks? All ranks will be killed anyway.
       MPI_Abort(_comm, -1);
     } else {
-      fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
+	fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
     }
 
+#ifdef _RAXML_PROFILE
+    shared_ptr<vector<uint64_t>> mpiTimings = mpiTimer.getHistogram()->data();
+    if (_rank_id == 0) {
+      auto allMpiTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * mpiTimings->size());
+      MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
+                  allMpiTimingsVec->data(), 64, MPI_UINT64_T,
+                  0, _comm);
+      auto proFile = make_shared<ofstream>();
+      proFile->open("profile.csv");
+      LogBinningProfiler::writeStats(allMpiTimingsVec, proFile);
+      proFile->close();
+    } else {
+      MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
+         nullptr, 0, MPI_UINT64_T, 0, _comm);
+    }
+#endif
     // After MPI_Finalize() is called, even MPI_Error_class() is no longer allowed -> there is no way to check for error
     MPI_Finalize();
   }

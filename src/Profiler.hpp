@@ -15,6 +15,8 @@ class LogBinningProfiler {
                 void event(uint64_t number);
                 uint64_t& operator[](size_t idx);
                 const uint64_t& operator[](size_t idx) const;
+                const shared_ptr<vector<uint64_t>> data() const;
+                operator std::string();
         };
 
     private:
@@ -28,6 +30,7 @@ class LogBinningProfiler {
         explicit LogBinningProfiler(string name);
         void startTimer();
         void endTimer();
-        const shared_ptr<LogarithmicHistogram> getHistogram() const;
+        shared_ptr<LogarithmicHistogram> getHistogram() const;
         const string getName() const;
+        static void writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file);
 };

@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <vector>
 #include <cassert>
+#include <fstream>
 
 #include "Profiler.hpp"
 
@@ -71,10 +72,49 @@ void LogBinningProfiler::endTimer() {
     eventCounter->event((uint64_t) timeDiff);
 }
 
-const shared_ptr<LogBinningProfiler::LogarithmicHistogram> LogBinningProfiler::getHistogram() const {
+shared_ptr<LogBinningProfiler::LogarithmicHistogram> LogBinningProfiler::getHistogram() const {
     return eventCounter;
 }
 
 const string LogBinningProfiler::getName() const {
     return this->name;
+}
+
+LogBinningProfiler::LogarithmicHistogram::operator std::string () {
+    string str = "";
+    for (int i = 0; i < 63; i++) {
+        str += to_string((*bins)[i]) + ",";
+    }
+    str += to_string((*bins)[63]);
+    return str;
+}
+
+const shared_ptr<vector<uint64_t>> LogBinningProfiler::LogarithmicHistogram::data() const {
+    return bins;
+};
+
+void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file) {
+    // Output header
+    *file << "rank,";
+    for (int bit = 0; bit < 64; bit++) {
+        *file << "[2^" << bit << ",2^" << bit + 1 << ") ns";
+        if (bit != 63) {
+            *file << ",";
+        } else {
+            *file << endl;
+        }
+    }
+
+    // Output data
+    for (size_t rank = 0; rank < data->size() / 64; rank++) {
+        *file << to_string(rank) + ",";
+        for (int timing = 0; timing < 64; timing++) {
+            *file << (*data)[rank * 64 + timing];
+            if (timing != 63) {
+                *file << ",";
+            } else {
+                *file << endl;
+            }
+        } 
+    }
 }
