@@ -104,27 +104,29 @@ uint64_t LogBinningProfiler::LogarithmicHistogram::numEvents() const {
 
 const shared_ptr<vector<uint64_t>> LogBinningProfiler::LogarithmicHistogram::data() const {
     return bins;
-};
+}
 
-void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file) {
+void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file, const string& timerName, bool printHeader) {
     if (data == nullptr || file == nullptr) {
         throw runtime_error("nullptr as data or file");
     }
 
     // Output header
-    *file << "rank,";
-    for (int bit = 0; bit < 64; bit++) {
-        *file << "[2^" << bit << ",2^" << bit + 1 << ") ns";
-        if (bit != 63) {
-            *file << ",";
-        } else {
-            *file << endl;
+    if (printHeader) {
+        *file << "rank,timer,";
+        for (int bit = 0; bit < 64; bit++) {
+            *file << "[2^" << bit << ",2^" << bit + 1 << ") ns";
+            if (bit != 63) {
+                *file << ",";
+            } else {
+                *file << endl;
+            }
         }
     }
 
     // Output data
     for (size_t rank = 0; rank < data->size() / 64; rank++) {
-        *file << to_string(rank) + ",";
+        *file << to_string(rank) + "," + timerName + ",";
         for (int timing = 0; timing < 64; timing++) {
             *file << (*data)[rank * 64 + timing];
             if (timing != 63) {
@@ -159,4 +161,12 @@ void LogBinningProfiler::abortTimer() {
     }
     running = false;
     // start will be overwritten once the timer starts again
+}
+
+
+bool LogBinningProfiler::isRunning() const {
+    if (invalid) {
+        throw runtime_error("Timer is in invalid state.");
+    }
+    return running;
 }

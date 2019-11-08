@@ -327,6 +327,44 @@ void ParallelContext::resize_buffers(size_t reduce_buf_size, size_t worker_buf_s
     grp.reduction_buf.reserve(reduce_buf_size);
 }
 
+// void ParallelContext::saveProfilingData() {
+//     // Collect and output MPI_Allreduce timer info
+//     shared_ptr<ofstream> proFile;
+//     assert(!mpiTimer.isRunning());
+//     shared_ptr<vector<uint64_t>> mpiTimings = mpiTimer.getHistogram()->data();
+//     if (master()) {
+//       auto allMpiTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * mpiTimings->size());
+//       MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
+//                   allMpiTimingsVec->data(), 64, MPI_UINT64_T,
+//                   0, _comm);
+//       proFile = make_shared<ofstream>();
+//       proFile->open("profile.csv");
+//       LogBinningProfiler::writeStats(allMpiTimingsVec, proFile, "MPI_Allreduce");
+//       cout << "MPI_Allreduce was called " << mpiTimer.eventsPerSecond() << " times per second." << endl;
+//     } else {
+//       MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
+//                  nullptr, 0, MPI_UINT64_T, 0, _comm);
+//     }
+
+//     // Collect and output work timer info
+//     if(workTimer.isRunning()) {
+//       workTimer.abortTimer();
+//     }
+//     shared_ptr<vector<uint64_t>> workTimings = workTimer.getHistogram()->data();
+//     if (master()) {
+//       auto allWorkTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * workTimings->size());
+//       MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
+//                   allWorkTimingsVec->data(), 64, MPI_UINT64_T,
+//                   0, _comm);
+//       LogBinningProfiler::writeStats(allWorkTimingsVec, proFile, "Work", false);
+//       proFile->close();
+//       // We will be miss the very first work unit, before the first MPI_Allreduce
+//     } else {
+//       MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
+//                  nullptr, 0, MPI_UINT64_T, 0, _comm);
+//     }
+//}
+
 void ParallelContext::finalize(bool force)
 {
 #ifdef _RAXML_PTHREADS
@@ -354,21 +392,7 @@ void ParallelContext::finalize(bool force)
     }
 
 #ifdef _RAXML_PROFILE
-    shared_ptr<vector<uint64_t>> mpiTimings = mpiTimer.getHistogram()->data();
-    if (master()) {
-      auto allMpiTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * mpiTimings->size());
-      MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
-                  allMpiTimingsVec->data(), 64, MPI_UINT64_T,
-                  0, _comm);
-      auto proFile = make_shared<ofstream>();
-      proFile->open("profile.csv");
-      LogBinningProfiler::writeStats(allMpiTimingsVec, proFile);
-      proFile->close();
-      cout << "MPI_Allreduce was called " << mpiTimer.eventsPerSecond() << " times per second." << endl;
-    } else {
-      MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
-         nullptr, 0, MPI_UINT64_T, 0, _comm);
-    }
+    ParallelContext::saveProfilingData();
 #endif
     // After MPI_Finalize() is called, even MPI_Error_class() is no longer allowed -> there is no way to check for error
     MPI_Finalize();

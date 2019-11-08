@@ -285,8 +285,9 @@ void CheckpointManager::update_and_write(const TreeInfo& treeinfo)
 
   ParallelContext::barrier();
 
-  if (ParallelContext::ranks_per_group() > 1)
+  if (ParallelContext::ranks_per_group() > 1) {
     gather_model_params();
+  }
 
   if (ParallelContext::group_master())
   {

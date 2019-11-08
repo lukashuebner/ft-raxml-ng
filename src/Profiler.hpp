@@ -33,10 +33,11 @@ class LogBinningProfiler {
         shared_ptr<LogarithmicHistogram> eventCounter = make_shared<LogarithmicHistogram>();
         explicit LogBinningProfiler(string name);
         void startTimer();
+        bool isRunning() const;
         void endTimer();
         void abortTimer();
         shared_ptr<LogarithmicHistogram> getHistogram() const;
         const string getName() const;
-        static void writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file);
+        static void writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file, const string& timerName, bool printHeader = true);
         float eventsPerSecond() const;
 };
