@@ -4,27 +4,31 @@ import os
 
 PE_PER_NODE = 20
 
-def writeSbatch(filename, numNodes, ranksPerNode, threadsPerRank, inputFile):
-    with open(filename, "w") as f:
+def writeSbatch(jobDir, sbatchFile, numNodes, ranksPerNode, threadsPerRank, inputFile):
+    with open(sbatchFile, "w") as f:
         f.write("#!/bin/bash\n")
         f.write("#SBATCH --nodes=%d\n" % numNodes)
         f.write("#SBATCH --ntasks-per-node=%d\n" % ranksPerNode)
         f.write("#SBATCH -t 01:00:00\n")
         f.write("#SBATCH -p normal\n")
         f.write("#SBATCH --mem=63720mb\n")
-        f.write("#SBATCH -o %s_%d@%d.out\n" % (inputFile, ranksPerNode, numNodes))
-        f.write("#SBATCH -e %s_%d@%d.err\n" % (inputFile, ranksPerNode, numNodes))
+        f.write("#SBATCH --chdir=%s\n" % jobDir)
+        f.write("#SBATCH -o out.txt\n")
+        f.write("#SBATCH -e err.txt\n")
         f.write("\n")
-        f.write("mpirun -n " + str(numNodes * ranksPerNode) + " raxml-ng-mpi --search --msa " + inputFile +
+        f.write("mpirun -n " + str(numNodes * ranksPerNode) + " ../raxml-ng-mpi --search --msa ../" + inputFile +
                 " --model GTR+R --tree pars{10} --threads " + str(threadsPerRank) + " --redo\n")
 
 def scheduleJob(sbatchFile):
     os.system("sbatch " + sbatchFile)
 
 def run(dataset, numNodes, ranksPerNode, threadsPerRank):
-    sbatchFile = "%s_%d@%d.sbatch" % (dataset, ranksPerNode, numNodes)
-    writeSbatch(sbatchFile, numNodes, ranksPerNode, threadsPerRank, dataset + ".phy")
-    scheduleJob(sbatchFile)
+    jobDir = "%s_%d@%d" % (dataset, ranksPerNode, numNodes)
+    if (not os.path.isdir(jobDir)):
+        os.mkdir(jobDir)
+    sbatchFile = "%s.sbatch" % jobDir
+    writeSbatch(jobDir, sbatchFile, numNodes, ranksPerNode, threadsPerRank, dataset + ".phy")
+    #scheduleJob(sbatchFile)
 
 def main():
     # DNA vs Amino Acids
