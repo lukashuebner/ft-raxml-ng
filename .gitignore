@@ -39,3 +39,7 @@ release/
 .cproject
 .project
 .settings/
+
+# sbatch and data files
+*.sbatch
+*.phy
