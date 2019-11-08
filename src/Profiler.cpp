@@ -5,6 +5,8 @@
 #include <vector>
 #include <cassert>
 #include <fstream>
+#include <numeric>
+#include <cmath>
 
 #include "Profiler.hpp"
 
@@ -52,12 +54,16 @@ void LogBinningProfiler::startTimer() {
     }
     running = true;
     start = chrono::high_resolution_clock::now();
+    if (firstStart == chrono::time_point<chrono::high_resolution_clock>::max()) {
+        firstStart = start;
+    }
 }
 
 void LogBinningProfiler::endTimer() {
     // We can stop the timing now, as the timer will be left in an invalid state if something goes wrong.
     // The value in stop will then no longer be valid.
     end = chrono::high_resolution_clock::now();
+    lastEnd = end;
 
     if (!running) {
         invalid = true;
@@ -73,6 +79,9 @@ void LogBinningProfiler::endTimer() {
 }
 
 shared_ptr<LogBinningProfiler::LogarithmicHistogram> LogBinningProfiler::getHistogram() const {
+    if (invalid) {
+        throw runtime_error("Trying to get histogram of invalid timer");
+    }
     return eventCounter;
 }
 
@@ -89,11 +98,19 @@ LogBinningProfiler::LogarithmicHistogram::operator std::string () {
     return str;
 }
 
+uint64_t LogBinningProfiler::LogarithmicHistogram::numEvents() const {
+    return accumulate(bins->begin(), bins->end(), 0);
+}
+
 const shared_ptr<vector<uint64_t>> LogBinningProfiler::LogarithmicHistogram::data() const {
     return bins;
 };
 
 void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file) {
+    if (data == nullptr || file == nullptr) {
+        throw runtime_error("nullptr as data or file");
+    }
+
     // Output header
     *file << "rank,";
     for (int bit = 0; bit < 64; bit++) {
@@ -117,4 +134,29 @@ void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_pt
             }
         } 
     }
+}
+
+uint64_t LogBinningProfiler::timesCalled() const {
+    if (invalid) {
+        throw runtime_error("Trying to get event count on invalid timer.");
+    }
+    return eventCounter->numEvents();
+}
+
+float LogBinningProfiler::eventsPerSecond() const {
+    if (invalid) {
+        throw runtime_error("Trying to get event frequency on invalid timer.");
+    }
+    float passedSeconds = (lastEnd - firstStart).count() / pow(10, 9);
+    return timesCalled() / passedSeconds;
+}
+
+void LogBinningProfiler::abortTimer() {
+    if (invalid) {
+        throw runtime_error("Trying to abort invalid timer");
+    } else if (!running) {
+        throw runtime_error("Trying to abort non-running timer.");
+    }
+    running = false;
+    // start will be overwritten once the timer starts again
 }

@@ -61,6 +61,7 @@ void ParallelContext::fail(size_t rankId, uint64_t on_nth_call) {
 
 #ifdef _RAXML_PROFILE
 LogBinningProfiler mpiTimer("MPI");
+LogBinningProfiler workTimer("Work");
 #endif
 
 void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
@@ -354,7 +355,7 @@ void ParallelContext::finalize(bool force)
 
 #ifdef _RAXML_PROFILE
     shared_ptr<vector<uint64_t>> mpiTimings = mpiTimer.getHistogram()->data();
-    if (_rank_id == 0) {
+    if (master()) {
       auto allMpiTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * mpiTimings->size());
       MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
                   allMpiTimingsVec->data(), 64, MPI_UINT64_T,
@@ -363,6 +364,7 @@ void ParallelContext::finalize(bool force)
       proFile->open("profile.csv");
       LogBinningProfiler::writeStats(allMpiTimingsVec, proFile);
       proFile->close();
+      cout << "MPI_Allreduce was called " << mpiTimer.eventsPerSecond() << " times per second." << endl;
     } else {
       MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
          nullptr, 0, MPI_UINT64_T, 0, _comm);

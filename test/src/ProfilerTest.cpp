@@ -40,9 +40,17 @@ TEST(ProfilerTest, LogHistogramBasics) {
     }
     res.pop_back();
     ASSERT_EQ((string)hist, res);
+
+    ASSERT_EQ(hist.numEvents(), 1337 + 2 +1);
 }
 
-TEST(ProfilerTest, Timer) {
+TEST(ProfilerTest, InvalidArguments) {
+    auto profiler = LogBinningProfiler("Testing");
+    ASSERT_ANY_THROW(profiler.writeStats(nullptr, make_shared<ostringstream>()));
+    ASSERT_ANY_THROW(profiler.writeStats(profiler.getHistogram()->data(), nullptr));
+}
+
+TEST(ProfilerTest, TimerBasics) {
     // buildup
     auto profiler = LogBinningProfiler("Testing");
 
@@ -54,11 +62,16 @@ TEST(ProfilerTest, Timer) {
         ASSERT_EQ((*hist)[i], 0);
     }
 
-    for (int i = 0; i < 100; i++) {
+    chrono::time_point<chrono::high_resolution_clock> start, end;
+    start = chrono::high_resolution_clock::now();
+    const unsigned int NUM_EVENTS = 100;
+    for (unsigned int i = 0; i < NUM_EVENTS; i++) {
         profiler.startTimer();
         std::this_thread::sleep_for(chrono::nanoseconds((1 << 20) + (1 << 8)));
         profiler.endTimer();
     }
+    end = chrono::high_resolution_clock::now();
+    float eventsPerSecond = NUM_EVENTS / ((end - start).count() / pow(10, 9));
     hist = profiler.getHistogram();
 
     for (int i = 0; i < 64; i++) {
@@ -68,6 +81,48 @@ TEST(ProfilerTest, Timer) {
             ASSERT_LE((*hist)[i], 5);
         }
     }
+
+    ASSERT_EQ(hist->numEvents(), 100);
+    ASSERT_GT(profiler.eventsPerSecond(), 100);
+    ASSERT_NEAR(profiler.eventsPerSecond(), eventsPerSecond, eventsPerSecond * 0.01);
+    ASSERT_EQ(profiler.eventsPerSecond(), profiler.eventsPerSecond());
+}
+
+TEST(ProfilerTest, InvalidStates) {
+    auto profiler = LogBinningProfiler("Testing");
+    // Try to stop the timer before it started
+    ASSERT_ANY_THROW(profiler.endTimer());
+    // After that, most other methods should throw an exception because of invalid state, too.
+    ASSERT_ANY_THROW(profiler.startTimer());
+    ASSERT_ANY_THROW(profiler.abortTimer());
+    ASSERT_ANY_THROW(profiler.eventsPerSecond());
+    ASSERT_ANY_THROW(profiler.getHistogram());
+
+    // Try to start the timer twice in a row
+    profiler = LogBinningProfiler("Testing");
+    profiler.startTimer();
+    ASSERT_ANY_THROW(profiler.startTimer());
+
+    // Try to abort a non-running timer
+    profiler = LogBinningProfiler("Testing");
+    ASSERT_ANY_THROW(profiler.abortTimer());
+
+    // Try to end an aborted timer
+    profiler = LogBinningProfiler("Testing");
+    profiler.startTimer();
+    profiler.abortTimer();
+    ASSERT_ANY_THROW(profiler.endTimer());
+}
+
+TEST(ProfilerTest, TimerCanBeAborted) {
+    auto profiler = LogBinningProfiler("Testing");
+
+    profiler.startTimer();
+    ASSERT_NO_THROW(profiler.endTimer());
+    profiler.startTimer();
+    ASSERT_NO_THROW(profiler.abortTimer());
+    ASSERT_EQ(profiler.getHistogram()->numEvents(), 1);
+    ASSERT_ANY_THROW(profiler.endTimer());
 }
 
 const string statsHeader = "rank,[2^0,2^1) ns,[2^1,2^2) ns,[2^2,2^3) ns,[2^3,2^4) ns,[2^4,2^5) ns,[2^5,2^6) ns,[2^6,2^7) ns,[2^7,2^8) ns,[2^8,2^9) ns,[2^9,2^10) ns,[2^10,2^11) ns,[2^11,2^12) ns,[2^12,2^13) ns,[2^13,2^14) ns,[2^14,2^15) ns,[2^15,2^16) ns,[2^16,2^17) ns,[2^17,2^18) ns,[2^18,2^19) ns,[2^19,2^20) ns,[2^20,2^21) ns,[2^21,2^22) ns,[2^22,2^23) ns,[2^23,2^24) ns,[2^24,2^25) ns,[2^25,2^26) ns,[2^26,2^27) ns,[2^27,2^28) ns,[2^28,2^29) ns,[2^29,2^30) ns,[2^30,2^31) ns,[2^31,2^32) ns,[2^32,2^33) ns,[2^33,2^34) ns,[2^34,2^35) ns,[2^35,2^36) ns,[2^36,2^37) ns,[2^37,2^38) ns,[2^38,2^39) ns,[2^39,2^40) ns,[2^40,2^41) ns,[2^41,2^42) ns,[2^42,2^43) ns,[2^43,2^44) ns,[2^44,2^45) ns,[2^45,2^46) ns,[2^46,2^47) ns,[2^47,2^48) ns,[2^48,2^49) ns,[2^49,2^50) ns,[2^50,2^51) ns,[2^51,2^52) ns,[2^52,2^53) ns,[2^53,2^54) ns,[2^54,2^55) ns,[2^55,2^56) ns,[2^56,2^57) ns,[2^57,2^58) ns,[2^58,2^59) ns,[2^59,2^60) ns,[2^60,2^61) ns,[2^61,2^62) ns,[2^62,2^63) ns,[2^63,2^64) ns\n";
