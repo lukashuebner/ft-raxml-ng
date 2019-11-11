@@ -115,7 +115,7 @@ void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_pt
     if (printHeader) {
         *file << "rank,timer,";
         for (int bit = 0; bit < 64; bit++) {
-            *file << "[2^" << bit << ",2^" << bit + 1 << ") ns";
+            *file << "\"[2^" << bit << ",2^" << bit + 1 << ") ns\"";
             if (bit != 63) {
                 *file << ",";
             } else {
