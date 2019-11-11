@@ -7,6 +7,7 @@
 #include <fstream>
 #include <numeric>
 #include <cmath>
+#include <iomanip>
 
 #include "Profiler.hpp"
 
@@ -115,7 +116,11 @@ void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_pt
     if (printHeader) {
         *file << "rank,timer,";
         for (int bit = 0; bit < 64; bit++) {
-            *file << "\"[2^" << bit << ",2^" << bit + 1 << ") ns\"";
+            *file << "\"[2^";
+            *file << setfill('0') << setw(2) << bit;
+            *file << ",2^";
+            *file << setfill('0') << setw(2) << bit + 1;
+            *file << ") ns\"";
             if (bit != 63) {
                 *file << ",";
             } else {
