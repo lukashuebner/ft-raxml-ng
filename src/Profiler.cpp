@@ -108,14 +108,17 @@ const shared_ptr<vector<uint64_t>> LogBinningProfiler::LogarithmicHistogram::dat
 }
 
 void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file, const string& timerName,
-                                    const vector<string>& ranksToProcessor, bool printHeader) {
+                                    const vector<string>& ranksToProcessor, int secondsPassed, bool printHeader) {
     if (data == nullptr || file == nullptr) {
         throw runtime_error("nullptr as data or file");
+    }
+    if (secondsPassed < 0) {
+        throw runtime_error("You seem to have invented time travel ;-) (secondsPassed < 0)");
     }
 
     // Output header
     if (printHeader) {
-        *file << "rank,processor,timer,";
+        *file << "rank,processor,timer,secondsPassed,";
         for (int bit = 0; bit < 64; bit++) {
             *file << "\"[2^";
             *file << setfill('0') << setw(2) << bit;
@@ -132,7 +135,7 @@ void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_pt
 
     // Output data
     for (size_t rank = 0; rank < data->size() / 64; rank++) {
-        *file << to_string(rank) + "," + ranksToProcessor[rank] + "," + timerName + ",";
+        *file << to_string(rank) + "," + ranksToProcessor[rank] + "," + timerName + "," + to_string(secondsPassed) + ",";
         for (int timing = 0; timing < 64; timing++) {
             *file << (*data)[rank * 64 + timing];
             if (timing != 63) {
@@ -155,8 +158,7 @@ float LogBinningProfiler::eventsPerSecond() const {
     if (invalid) {
         throw runtime_error("Trying to get event frequency on invalid timer.");
     }
-    float passedSeconds = (lastEnd - firstStart).count() / pow(10, 9);
-    return timesCalled() / passedSeconds;
+    return timesCalled() / secondsPassed();
 }
 
 void LogBinningProfiler::abortTimer() {
@@ -175,4 +177,11 @@ bool LogBinningProfiler::isRunning() const {
         throw runtime_error("Timer is in invalid state.");
     }
     return running;
+}
+
+float LogBinningProfiler::secondsPassed() const {
+    if (invalid) {
+        throw runtime_error("Trying to get passed time on invalid timer.");
+    }
+    return (lastEnd - firstStart).count() / pow(10, 9);
 }

@@ -63,6 +63,7 @@ void ParallelContext::fail(size_t rankId, uint64_t on_nth_call) {
 #ifdef _RAXML_PROFILE
 LogBinningProfiler mpiTimer("MPI");
 LogBinningProfiler workTimer("Work");
+bool profilingHeaderWritten = false;
 #endif
 
 void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
@@ -331,43 +332,57 @@ void ParallelContext::resize_buffers(size_t reduce_buf_size, size_t worker_buf_s
     grp.reduction_buf.reserve(reduce_buf_size);
 }
 
-// void ParallelContext::saveProfilingData() {
-//     // Collect and output MPI_Allreduce timer info
-//     shared_ptr<ofstream> proFile;
-//     assert(!mpiTimer.isRunning());
-//     shared_ptr<vector<uint64_t>> mpiTimings = mpiTimer.getHistogram()->data();
-//     if (master()) {
-//       auto allMpiTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * mpiTimings->size());
-//       MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
-//                   allMpiTimingsVec->data(), 64, MPI_UINT64_T,
-//                   0, _comm);
-//       proFile = make_shared<ofstream>();
-//       proFile->open("profile.csv");
-//       LogBinningProfiler::writeStats(allMpiTimingsVec, proFile, "MPI_Allreduce", _rankToProcessorName);
-//       cout << "MPI_Allreduce was called " << mpiTimer.eventsPerSecond() << " times per second." << endl;
-//     } else {
-//       MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
-//                  nullptr, 0, MPI_UINT64_T, 0, _comm);
-//     }
+void ParallelContext::saveProfilingData() {
+    // Collect and output MPI_Allreduce timer info
+    shared_ptr<ofstream> proFile;
+    assert(!mpiTimer.isRunning());
+    // Save the time passed once so it will be the same for all measurements collected during one call to this function
+    int secondsPassed = mpiTimer.secondsPassed();
+    shared_ptr<vector<uint64_t>> mpiTimings = mpiTimer.getHistogram()->data();
+    if (master()) {
+      auto allMpiTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * mpiTimings->size());
+      MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
+                  allMpiTimingsVec->data(), 64, MPI_UINT64_T,
+                  0, _comm);
+      
+      proFile = make_shared<ofstream>();
+      if (profilingHeaderWritten) {
+        proFile->open("profile.csv", ios_base::app);
+      } else {
+        // Override existing file, this is a new run
+        proFile->open("profile.csv");
+      }
 
-//     // Collect and output work timer info
-//     if(workTimer.isRunning()) {
-//       workTimer.abortTimer();
-//     }
-//     shared_ptr<vector<uint64_t>> workTimings = workTimer.getHistogram()->data();
-//     if (master()) {
-//       auto allWorkTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * workTimings->size());
-//       MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
-//                   allWorkTimingsVec->data(), 64, MPI_UINT64_T,
-//                   0, _comm);
-//       LogBinningProfiler::writeStats(allWorkTimingsVec, proFile, "Work", _rankToProcessorName, false);
-//       proFile->close();
-//       // We will be miss the very first work unit, before the first MPI_Allreduce
-//     } else {
-//       MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
-//                  nullptr, 0, MPI_UINT64_T, 0, _comm);
-//     }
-// }
+      LogBinningProfiler::writeStats(allMpiTimingsVec, proFile, "MPI_Allreduce", _rankToProcessorName, secondsPassed, !profilingHeaderWritten);
+      profilingHeaderWritten = true;
+      cout << "MPI_Allreduce was called " << mpiTimer.eventsPerSecond() << " times per second." << endl;
+    } else {
+      MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
+                 nullptr, 0, MPI_UINT64_T, 0, _comm);
+    }
+
+    // Collect and output work timer info
+    if(workTimer.isRunning()) {
+      workTimer.abortTimer();
+    }
+    shared_ptr<vector<uint64_t>> workTimings = workTimer.getHistogram()->data();
+    if (master()) {
+      auto allWorkTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * workTimings->size());
+      MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
+                  allWorkTimingsVec->data(), 64, MPI_UINT64_T,
+                  0, _comm);
+      LogBinningProfiler::writeStats(allWorkTimingsVec, proFile, "Work", _rankToProcessorName, secondsPassed, false);
+      proFile->close();
+      // We will be miss the very first work unit, before the first MPI_Allreduce
+    } else {
+      MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
+                 nullptr, 0, MPI_UINT64_T, 0, _comm);
+    }
+
+    // Reset timers
+    workTimer = LogBinningProfiler("Work");
+    mpiTimer = LogBinningProfiler("MPI");
+}
 
 void ParallelContext::finalize(bool force)
 {
