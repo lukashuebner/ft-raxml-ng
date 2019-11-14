@@ -198,6 +198,8 @@ private:
   static std::unordered_map<ThreadIDType, ParallelContext> _thread_ctx_map;
   static MutexType mtx;
 
+  static std::vector<std::string> _rankToProcessorName;
+
   static size_t _rank_id;
   static size_t _local_rank_id;
   static thread_local size_t _thread_id;

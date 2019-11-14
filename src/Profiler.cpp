@@ -107,14 +107,15 @@ const shared_ptr<vector<uint64_t>> LogBinningProfiler::LogarithmicHistogram::dat
     return bins;
 }
 
-void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file, const string& timerName, bool printHeader) {
+void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file, const string& timerName,
+                                    const vector<string>& ranksToProcessor, bool printHeader) {
     if (data == nullptr || file == nullptr) {
         throw runtime_error("nullptr as data or file");
     }
 
     // Output header
     if (printHeader) {
-        *file << "rank,timer,";
+        *file << "rank,processor,timer,";
         for (int bit = 0; bit < 64; bit++) {
             *file << "\"[2^";
             *file << setfill('0') << setw(2) << bit;
@@ -131,7 +132,7 @@ void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_pt
 
     // Output data
     for (size_t rank = 0; rank < data->size() / 64; rank++) {
-        *file << to_string(rank) + "," + timerName + ",";
+        *file << to_string(rank) + "," + ranksToProcessor[rank] + "," + timerName + ",";
         for (int timing = 0; timing < 64; timing++) {
             *file << (*data)[rank * 64 + timing];
             if (timing != 63) {

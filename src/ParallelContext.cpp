@@ -28,6 +28,7 @@ std::vector<ThreadType> ParallelContext::_threads;
 std::vector<char> ParallelContext::_parallel_buf;
 std::unordered_map<ThreadIDType, ParallelContext> ParallelContext::_thread_ctx_map;
 MutexType ParallelContext::mtx;
+vector<string> ParallelContext::_rankToProcessorName = vector<string>();
 
 thread_local size_t ParallelContext::_local_thread_id = 0;
 thread_local ThreadGroup * ParallelContext::_thread_group = nullptr;
@@ -284,6 +285,7 @@ void ParallelContext::detect_num_nodes()
 //    printf("\n hostname: %s,  len; %d\n", name, len);
 
     node_names.insert(name);
+    ParallelContext::_rankToProcessorName.push_back(name);
 
     /* send callback -> work rank: send host name to master */
     auto worker_cb = [name,len](void * buf, size_t buf_size) -> int
@@ -297,6 +299,8 @@ void ParallelContext::detect_num_nodes()
     auto master_cb = [&node_names](void * buf, size_t buf_size)
        {
         node_names.insert((char*) buf);
+        // The way mpi_gather_custom is implemented, these will arrive in order
+        ParallelContext::_rankToProcessorName.push_back((char*) buf);
         RAXML_UNUSED(buf_size);
        };
 
@@ -339,7 +343,7 @@ void ParallelContext::resize_buffers(size_t reduce_buf_size, size_t worker_buf_s
 //                   0, _comm);
 //       proFile = make_shared<ofstream>();
 //       proFile->open("profile.csv");
-//       LogBinningProfiler::writeStats(allMpiTimingsVec, proFile, "MPI_Allreduce");
+//       LogBinningProfiler::writeStats(allMpiTimingsVec, proFile, "MPI_Allreduce", _rankToProcessorName);
 //       cout << "MPI_Allreduce was called " << mpiTimer.eventsPerSecond() << " times per second." << endl;
 //     } else {
 //       MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
@@ -356,14 +360,14 @@ void ParallelContext::resize_buffers(size_t reduce_buf_size, size_t worker_buf_s
 //       MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
 //                   allWorkTimingsVec->data(), 64, MPI_UINT64_T,
 //                   0, _comm);
-//       LogBinningProfiler::writeStats(allWorkTimingsVec, proFile, "Work", false);
+//       LogBinningProfiler::writeStats(allWorkTimingsVec, proFile, "Work", _rankToProcessorName, false);
 //       proFile->close();
 //       // We will be miss the very first work unit, before the first MPI_Allreduce
 //     } else {
 //       MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
 //                  nullptr, 0, MPI_UINT64_T, 0, _comm);
 //     }
-//}
+// }
 
 void ParallelContext::finalize(bool force)
 {
