@@ -61,6 +61,7 @@ public:
   static void resize_buffers(size_t reduce_buf_size, size_t worker_buf_size = 0);
 
   static void saveProfilingData();
+  static std::string rankToProcessorName(size_t rank);
   static void finalize(bool force = false);
 
   static size_t num_procs() { return _num_ranks * _num_threads; }

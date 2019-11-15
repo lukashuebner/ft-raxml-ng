@@ -30,10 +30,14 @@ std::unordered_map<ThreadIDType, ParallelContext> ParallelContext::_thread_ctx_m
 MutexType ParallelContext::mtx;
 vector<string> ParallelContext::_rankToProcessorName = vector<string>();
 
+string ParallelContext::rankToProcessorName(size_t rank) {
+  assert(rank < ParallelContext::_rankToProcessorName.size());
+  return ParallelContext::_rankToProcessorName.at(rank);
+}
+
 thread_local size_t ParallelContext::_local_thread_id = 0;
 thread_local ThreadGroup * ParallelContext::_thread_group = nullptr;
 std::vector<ThreadGroup> ParallelContext::_thread_groups;
-
 
 #ifdef _RAXML_MPI
 MPI_Comm ParallelContext::_comm = MPI_COMM_WORLD;
@@ -69,10 +73,9 @@ bool profilingHeaderWritten = false;
 void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
 {
 #ifdef _RAXML_MPI
-  {
-    int tmp;
+  int tmp;
 
-    _parallel_buf.reserve(PARALLEL_BUF_SIZE);
+  _parallel_buf.reserve(PARALLEL_BUF_SIZE);
 
     if (comm)
     {
@@ -96,9 +99,11 @@ void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
     _num_ranks = (size_t) tmp;
 //    printf("size: %lu, rank: %lu\n", _num_ranks, _rank_id);
 
-    detect_num_nodes();
+  detect_num_nodes();
 //    printf("nodes: %lu\n", _num_nodes);
-  }
+
+  auto profilerRegister = ProfilerRegister::createInstance("profile_2.csv");
+  profilerRegister->registerProfiler("");
 #else
   RAXML_UNUSED(argc);
   RAXML_UNUSED(argv);
@@ -325,63 +330,15 @@ void ParallelContext::detect_num_nodes()
 #endif
 }
 
-void ParallelContext::resize_buffers(size_t reduce_buf_size, size_t worker_buf_size)
+void ParallelContext::saveProfilingData() {
+    ProfilerRegister::getInstance()->saveProfilingData(master(), _num_ranks, &(ParallelContext::rankToProcessorName), _comm);
+}
+
+void ParallelContext::resize_buffer(size_t size)
 {
   _parallel_buf.reserve(worker_buf_size);
   for (auto& grp: _thread_groups)
     grp.reduction_buf.reserve(reduce_buf_size);
-}
-
-void ParallelContext::saveProfilingData() {
-    // Collect and output MPI_Allreduce timer info
-    shared_ptr<ofstream> proFile;
-    assert(!mpiTimer.isRunning());
-    // Save the time passed once so it will be the same for all measurements collected during one call to this function
-    int secondsPassed = mpiTimer.secondsPassed();
-    shared_ptr<vector<uint64_t>> mpiTimings = mpiTimer.getHistogram()->data();
-    if (master()) {
-      auto allMpiTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * mpiTimings->size());
-      MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
-                  allMpiTimingsVec->data(), 64, MPI_UINT64_T,
-                  0, _comm);
-      
-      proFile = make_shared<ofstream>();
-      if (profilingHeaderWritten) {
-        proFile->open("profile.csv", ios_base::app);
-      } else {
-        // Override existing file, this is a new run
-        proFile->open("profile.csv");
-      }
-
-      LogBinningProfiler::writeStats(allMpiTimingsVec, proFile, "MPI_Allreduce", _rankToProcessorName, secondsPassed, !profilingHeaderWritten);
-      profilingHeaderWritten = true;
-      cout << "MPI_Allreduce was called " << mpiTimer.eventsPerSecond() << " times per second." << endl;
-    } else {
-      MPI_Gather(mpiTimings->data(), mpiTimings->size(), MPI_UINT64_T,
-                 nullptr, 0, MPI_UINT64_T, 0, _comm);
-    }
-
-    // Collect and output work timer info
-    if(workTimer.isRunning()) {
-      workTimer.abortTimer();
-    }
-    shared_ptr<vector<uint64_t>> workTimings = workTimer.getHistogram()->data();
-    if (master()) {
-      auto allWorkTimingsVec = make_shared<vector<uint64_t>>(_num_ranks * workTimings->size());
-      MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
-                  allWorkTimingsVec->data(), 64, MPI_UINT64_T,
-                  0, _comm);
-      LogBinningProfiler::writeStats(allWorkTimingsVec, proFile, "Work", _rankToProcessorName, secondsPassed, false);
-      proFile->close();
-      // We will be miss the very first work unit, before the first MPI_Allreduce
-    } else {
-      MPI_Gather(workTimings->data(), workTimings->size(), MPI_UINT64_T,
-                 nullptr, 0, MPI_UINT64_T, 0, _comm);
-    }
-
-    // Reset timers
-    workTimer = LogBinningProfiler("Work");
-    mpiTimer = LogBinningProfiler("MPI");
 }
 
 void ParallelContext::finalize(bool force)
@@ -410,10 +367,6 @@ void ParallelContext::finalize(bool force)
 	fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
     }
 
-#ifdef _RAXML_PROFILE
-    ParallelContext::saveProfilingData();
-#endif
-    // After MPI_Finalize() is called, even MPI_Error_class() is no longer allowed -> there is no way to check for error
     MPI_Finalize();
   }
   else {

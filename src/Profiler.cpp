@@ -8,6 +8,7 @@
 #include <numeric>
 #include <cmath>
 #include <iomanip>
+#include <mpi.h>
 
 #include "Profiler.hpp"
 
@@ -107,35 +108,35 @@ const shared_ptr<vector<uint64_t>> LogBinningProfiler::LogarithmicHistogram::dat
     return bins;
 }
 
-void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file, const string& timerName,
-                                    const vector<string>& ranksToProcessor, int secondsPassed, bool printHeader) {
+unique_ptr<ostream> LogBinningProfiler::writeStatsHeader(unique_ptr<ostream> file) {
+    *file << "rank,processor,timer,secondsPassed,";
+    for (int bit = 0; bit < 64; bit++) {
+        *file << "\"[2^";
+        *file << setfill('0') << setw(2) << bit;
+        *file << ",2^";
+        *file << setfill('0') << setw(2) << bit + 1;
+        *file << ") ns\"";
+        if (bit != 63) {
+            *file << ",";
+        } else {
+            *file << endl;
+        }
+    }
+    return file;
+}
+
+unique_ptr<ostream> LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
+                                                   string (*rankToProcessorName) (size_t), int secondsPassed) {
     if (data == nullptr || file == nullptr) {
         throw runtime_error("nullptr as data or file");
     }
     if (secondsPassed < 0) {
         throw runtime_error("You seem to have invented time travel ;-) (secondsPassed < 0)");
-    }
-
-    // Output header
-    if (printHeader) {
-        *file << "rank,processor,timer,secondsPassed,";
-        for (int bit = 0; bit < 64; bit++) {
-            *file << "\"[2^";
-            *file << setfill('0') << setw(2) << bit;
-            *file << ",2^";
-            *file << setfill('0') << setw(2) << bit + 1;
-            *file << ") ns\"";
-            if (bit != 63) {
-                *file << ",";
-            } else {
-                *file << endl;
-            }
-        }
-    }
+    } 
 
     // Output data
     for (size_t rank = 0; rank < data->size() / 64; rank++) {
-        *file << to_string(rank) + "," + ranksToProcessor[rank] + "," + timerName + "," + to_string(secondsPassed) + ",";
+        *file << to_string(rank) + "," + (*rankToProcessorName)(rank) + "," + timerName + "," + to_string(secondsPassed) + ",";
         for (int timing = 0; timing < 64; timing++) {
             *file << (*data)[rank * 64 + timing];
             if (timing != 63) {
@@ -145,6 +146,8 @@ void LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, shared_pt
             }
         } 
     }
+
+    return file;
 }
 
 uint64_t LogBinningProfiler::timesCalled() const {
@@ -184,4 +187,76 @@ float LogBinningProfiler::secondsPassed() const {
         throw runtime_error("Trying to get passed time on invalid timer.");
     }
     return (lastEnd - firstStart).count() / pow(10, 9);
+}
+
+ProfilerRegister::ProfilerRegister(string logFile) {
+    createProFile(logFile);
+    profilers = make_shared<map<string, shared_ptr<LogBinningProfiler>>>();
+}
+
+void ProfilerRegister::createProFile(string path) {
+    if (proFile != nullptr) {
+        throw runtime_error("Profiling data logfile has already been created!");
+    }
+    ofstream* file = new ofstream();
+    file->open(path, ios_base::app);
+    proFile = unique_ptr<ostream>(file);
+    proFile = LogBinningProfiler::writeStatsHeader(move(proFile));
+}
+
+shared_ptr<LogBinningProfiler> ProfilerRegister::registerProfiler(string name) {
+    if (profilers->find(name) != profilers->end()) {
+        throw runtime_error("A profiler with this name already exists.");
+    }
+    // This would not throw an exception if a profiler with this name would already exist.
+    (*profilers)[name] = make_shared<LogBinningProfiler>(name);
+    return (*profilers)[name];
+}
+
+shared_ptr<LogBinningProfiler> ProfilerRegister::getProfiler(string name) const {
+    // Will throw an exception if the profiler is non-existent
+    return profilers->at(name);
+}
+
+shared_ptr<ProfilerRegister> ProfilerRegister::singleton = nullptr;
+
+shared_ptr<ProfilerRegister> ProfilerRegister::getInstance() {
+    if (singleton == nullptr) {
+        throw runtime_error("No instance has been created yet.");
+    }
+    return singleton;
+}
+
+shared_ptr<ProfilerRegister> ProfilerRegister::createInstance(string logFile) {
+    if (singleton != nullptr) {
+        throw runtime_error("An instance has already been created.");
+    }
+    singleton = shared_ptr<ProfilerRegister>(new ProfilerRegister(logFile));
+    return singleton;
+}
+
+void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (*rankToProcessorName) (size_t), MPI_Comm comm) {
+    // Save the time passed once so it will be the same for all measurements collected during one call to this function
+    int secondsPassed = profilers->begin()->second->secondsPassed();
+
+    // Iterating over a std::map is actually sorted by key -> We will always collect the correct timing data
+    for (auto timerPair: *profilers) {
+        auto timer = timerPair.second;
+        if (timer->isRunning()) { 
+            timer->abortTimer();
+        }
+        shared_ptr<vector<uint64_t>> timings = timer->getHistogram()->data();
+        if (master) {
+            auto allTimingsVec = make_shared<vector<uint64_t>>(num_ranks * timings->size());
+            MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
+                    allTimingsVec->data(), 64, MPI_UINT64_T,
+                    0, comm);
+
+            proFile = LogBinningProfiler::writeStats(allTimingsVec, move(proFile), timer->getName(), rankToProcessorName, secondsPassed);
+            cout << timer->getName() + " was called " << timer->eventsPerSecond() << " times per second." << endl;
+        } else {
+            MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
+                    nullptr, 0, MPI_UINT64_T, 0, comm);
+        }
+    }
 }

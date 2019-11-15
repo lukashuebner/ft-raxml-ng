@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <map>
 
 using namespace std;
 
@@ -37,9 +38,30 @@ class LogBinningProfiler {
         void endTimer();
         void abortTimer();
         shared_ptr<LogarithmicHistogram> getHistogram() const;
-        const string getName() const;
-        static void writeStats(shared_ptr<vector<uint64_t>> data, shared_ptr<ostream> file, const string& timerName,
-                               const vector<string>& ranksToProcessor, int secondsPassed, bool printHeader = true);
+        const string getName() const; 
+        static unique_ptr<ostream> writeStatsHeader(unique_ptr<ostream> file);
+        static unique_ptr<ostream> writeStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
+                                              string (*rankToProcessorName) (size_t), int secondsPassed);
         float eventsPerSecond() const;
         float secondsPassed() const;
+};
+
+class ProfilerRegister {
+    private:
+        unique_ptr<ostream> proFile = nullptr;
+        shared_ptr<map<string, shared_ptr<LogBinningProfiler>>> profilers = nullptr;
+        void createProFile(string path);
+        
+        ProfilerRegister(string logFile);
+        static shared_ptr<ProfilerRegister> singleton;
+
+    public:
+
+        static shared_ptr<ProfilerRegister> getInstance();
+        static shared_ptr<ProfilerRegister> createInstance(string logFile);
+        ProfilerRegister() = delete;
+
+        shared_ptr<LogBinningProfiler> registerProfiler(string name);
+        shared_ptr<LogBinningProfiler> getProfiler(string name) const;
+        void saveProfilingData(bool master, size_t num_ranks, string (*rankToProcessorName) (size_t), MPI_Comm comm);
 };
