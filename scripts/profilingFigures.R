@@ -113,23 +113,47 @@ ggplot() +
     fill = "Code Segment")
 
 # Variance in time spent in different code segments
+names(maxRanks) <- unique(data$dataset)
+maxRanks <- map_int(names(maxRanks), function(ds) {
+  max(filter(data, timer == "Work", dataset == ds)$rank)
+})
+
 ggplot() +
   geom_linerange(
     data = filter(data, timer == "MPI_Allreduce"),
     mapping = aes(ymin = q05, ymax = q95, x = rank, color = "MPI_Allreduce"),
     position = position_dodge(.2)
   ) +
-  # geom_linerange(
-  #   data = filter(data, timer == "Work"),
-  #   mapping = aes(ymin = q05, ymax = q90, x = rank, color = "Work"),
-  #   position = position_dodge(.2)
-  # ) +
-  #coord_flip() +
-  facet_wrap(~dataset, scale = "free_y") +
+  geom_linerange(
+    data = filter(data, timer == "Work"),
+    mapping = aes(ymin = q05, ymax = q95, x = rank + maxRanks[dataset], color = "Work"),
+    position = position_dodge(.2)
+  ) +
+  geom_point(
+    data = filter(data, timer == "MPI_Allreduce"),
+    mapping = aes(y = medianBin, x = rank),
+    color = "black",
+    size = 0.5
+  ) +
+  geom_point(
+    data = filter(data, timer == "Work"),
+    mapping = aes(y = medianBin, x = rank + maxRanks[dataset]),
+    color = "black",
+    size = 0.5
+  ) +
+  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) +
+  scale_y_discrete(limits = binFactorRange(union(data$q95, data$q05))) +
   theme_bw() +
   theme(
-    axis.text.x = element_text(angle = 60, hjust = 1),
+    #axis.text.x = element_text(angle = 60, hjust = 1),
     panel.grid.minor.x = element_blank(),
-    panel.grid.major.x = element_blank()) +
-  scale_fill_brewer(palette = "Dark2") #+
-  #scale_y_discrete(limits = binFactorRange(union(data$q05, data$q90)))
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()) +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(
+    x = "rank",
+    y = "0.05 to 0.95 quantiles of time spent in code segment",
+    colour = "Code Segment")
+                
+
