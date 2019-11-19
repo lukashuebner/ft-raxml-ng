@@ -69,7 +69,7 @@ hist_quantile_bin <- function(row, quantile) {
 data$medianBin <- by(data, 1:nrow(data), Curry(hist_quantile_bin, quantile = 0.5))
 data$medianBin <- factor(data$medianBin, levels = binLevels)
 data$q05 <- by(data, 1:nrow(data), Curry(hist_quantile_bin, quantile = 0.05))
-data$q95 <- by(data, 1:nrow(data), Curry(hist_quantile_bin, quantile = 0.95))
+  data$q95 <- by(data, 1:nrow(data), Curry(hist_quantile_bin, quantile = 0.95))
 
 summary <- data %>%
   group_by(dataset, timer, medianBin) %>%
