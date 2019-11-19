@@ -47,7 +47,7 @@ uint8_t LogBinningProfiler::LogarithmicHistogram::log2i(uint64_t n) {
 
 LogBinningProfiler::LogBinningProfiler(string name) : name(name) {}
 
-void LogBinningProfiler::startTimer() {
+void LogBinningProfiler::startTimer(bool resume) {
     if (running) {
         invalid = true;
         throw runtime_error("The timer is already running.");
@@ -56,16 +56,22 @@ void LogBinningProfiler::startTimer() {
     }
     running = true;
     start = chrono::high_resolution_clock::now();
-    if (firstStart == chrono::time_point<chrono::high_resolution_clock>::max()) {
-        firstStart = start;
+    assert(!(resume && firstStart == chrono::time_point<chrono::high_resolution_clock>::max()));
+    if (!resume) {
+        nsPassed = 0;
+        if (firstStart == chrono::time_point<chrono::high_resolution_clock>::max()) {
+            firstStart = start;
+        }
     }
 }
 
-void LogBinningProfiler::endTimer() {
+void LogBinningProfiler::endTimer(bool pause) {
     // We can stop the timing now, as the timer will be left in an invalid state if something goes wrong.
     // The value in stop will then no longer be valid.
     end = chrono::high_resolution_clock::now();
-    lastEnd = end;
+    if (!pause) {
+        lastEnd = end;
+    }
 
     if (!running) {
         invalid = true;
@@ -77,7 +83,19 @@ void LogBinningProfiler::endTimer() {
     running = false;
     int64_t timeDiff = ((chrono::nanoseconds) (end - start)).count();
     assert(timeDiff > 0 && "Timer ended before it started.");
-    eventCounter->event((uint64_t) timeDiff);
+    if (pause) {
+        nsPassed += (uint64_t) timeDiff;
+    } else {
+        eventCounter->event((uint64_t) timeDiff + nsPassed);
+    }
+}
+
+void LogBinningProfiler::pauseTimer() {
+   endTimer(true); 
+}
+
+void LogBinningProfiler::resumeTimer() {
+    startTimer(true);
 }
 
 shared_ptr<LogBinningProfiler::LogarithmicHistogram> LogBinningProfiler::getHistogram() const {
@@ -189,19 +207,27 @@ float LogBinningProfiler::secondsPassed() const {
     return (lastEnd - firstStart).count() / pow(10, 9);
 }
 
-ProfilerRegister::ProfilerRegister(string logFile) {
-    createProFile(logFile);
+ProfilerRegister::ProfilerRegister(string prefix) {
+    createProFile(prefix);
     profilers = make_shared<map<string, shared_ptr<LogBinningProfiler>>>();
 }
 
-void ProfilerRegister::createProFile(string path) {
-    if (proFile != nullptr) {
+void ProfilerRegister::createProFile(string prefix) {
+    if (proFile != nullptr || callsPerSecondFile != nullptr) {
         throw runtime_error("Profiling data logfile has already been created!");
     }
+
+    // ProFile
     ofstream* file = new ofstream();
-    file->open(path, ios_base::app);
+    file->open(prefix + "_proFile.csv");
     proFile = unique_ptr<ostream>(file);
     proFile = LogBinningProfiler::writeStatsHeader(move(proFile));
+
+    // Calls per second file
+    file = new ofstream();
+    file->open(prefix + "_callsPerSecond.csv");
+    callsPerSecondFile = unique_ptr<ostream>(file);
+    callsPerSecondFile = LogBinningProfiler::writeCallsPerSecondsHeader(move(callsPerSecondFile));
 }
 
 shared_ptr<LogBinningProfiler> ProfilerRegister::registerProfiler(string name) {
@@ -242,8 +268,8 @@ void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (
     // Iterating over a std::map is actually sorted by key -> We will always collect the correct timing data
     for (auto timerPair: *profilers) {
         auto timer = timerPair.second;
-        if (timer->isRunning()) { 
-            timer->abortTimer();
+        if (timer->isRunning()) {
+            throw runtime_error("Trying to save profiling data while timer " + timer->getName() + " is still running!");
         }
         shared_ptr<vector<uint64_t>> timings = timer->getHistogram()->data();
         if (master) {
@@ -253,10 +279,32 @@ void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (
                     0, comm);
 
             proFile = LogBinningProfiler::writeStats(allTimingsVec, move(proFile), timer->getName(), rankToProcessorName, secondsPassed);
-            cout << timer->getName() + " was called " << timer->eventsPerSecond() << " times per second." << endl;
+            callsPerSecondFile = LogBinningProfiler::writeCallsPerSecondsStats(timer->getName(), secondsPassed, timer->eventsPerSecond(), move(callsPerSecondFile));
         } else {
             MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
                     nullptr, 0, MPI_UINT64_T, 0, comm);
         }
     }
+}
+
+unique_ptr<ostream> LogBinningProfiler::writeCallsPerSecondsHeader(unique_ptr<ostream> file) {
+    if (file == nullptr) {
+        throw runtime_error("Stream ptr should not be a nullptr");
+    }
+    *file << "timer,secondsPassed,callsPerSecond" << endl;
+
+    return file;
+}
+
+unique_ptr<ostream> LogBinningProfiler::writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file) {
+    if (file == nullptr) {
+        throw runtime_error("Ouput stream pointer is nullptr");
+    } else if (secondsPassed < 0) {
+        throw runtime_error("< 0 seconds passed");
+    } else if (callsPerSecond < 0) {
+        throw runtime_error("< 0 calls per second");
+    }
+    *file << timer << "," << to_string(secondsPassed) << "," << to_string(callsPerSecond) << endl;
+
+    return file;
 }

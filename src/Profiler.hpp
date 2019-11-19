@@ -26,6 +26,7 @@ class LogBinningProfiler {
         bool running = false;
         bool invalid = false;
         chrono::time_point<chrono::high_resolution_clock> start, end;
+        uint64_t nsPassed = 0;
         chrono::time_point<chrono::high_resolution_clock> firstStart = chrono::time_point<chrono::high_resolution_clock>::max();
         chrono::time_point<chrono::high_resolution_clock> lastEnd;
         uint64_t timesCalled() const;
@@ -33,15 +34,19 @@ class LogBinningProfiler {
     public:
         shared_ptr<LogarithmicHistogram> eventCounter = make_shared<LogarithmicHistogram>();
         explicit LogBinningProfiler(string name);
-        void startTimer();
+        void startTimer(bool resume = false);
         bool isRunning() const;
-        void endTimer();
+        void endTimer(bool pause = false);
         void abortTimer();
+        void pauseTimer();
+        void resumeTimer();
         shared_ptr<LogarithmicHistogram> getHistogram() const;
         const string getName() const; 
         static unique_ptr<ostream> writeStatsHeader(unique_ptr<ostream> file);
         static unique_ptr<ostream> writeStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
                                               string (*rankToProcessorName) (size_t), int secondsPassed);
+        static unique_ptr<ostream> writeCallsPerSecondsHeader(unique_ptr<ostream> file);
+        static unique_ptr<ostream> writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file);
         float eventsPerSecond() const;
         float secondsPassed() const;
 };
@@ -49,6 +54,7 @@ class LogBinningProfiler {
 class ProfilerRegister {
     private:
         unique_ptr<ostream> proFile = nullptr;
+        unique_ptr<ostream> callsPerSecondFile = nullptr;
         shared_ptr<map<string, shared_ptr<LogBinningProfiler>>> profilers = nullptr;
         void createProFile(string path);
         
