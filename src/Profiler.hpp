@@ -24,6 +24,7 @@ class LogBinningProfiler {
     private:
         string name;
         bool running = false;
+        bool savedOrDiscarded = true;
         bool invalid = false;
         chrono::time_point<chrono::high_resolution_clock> start, end;
         uint64_t nsPassed = 0;
@@ -36,10 +37,12 @@ class LogBinningProfiler {
         explicit LogBinningProfiler(string name);
         void startTimer(bool resume = false);
         bool isRunning() const;
-        void endTimer(bool pause = false);
+        void endTimer();
         void abortTimer();
-        void pauseTimer();
         void resumeTimer();
+        void discardTimer();
+        uint64_t getTimer() const;
+        void saveTimer(uint64_t min);
         shared_ptr<LogarithmicHistogram> getHistogram() const;
         const string getName() const; 
         static unique_ptr<ostream> writeStatsHeader(unique_ptr<ostream> file);
@@ -49,6 +52,7 @@ class LogBinningProfiler {
         static unique_ptr<ostream> writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file);
         float eventsPerSecond() const;
         float secondsPassed() const;
+        ~LogBinningProfiler();
 };
 
 class ProfilerRegister {
@@ -62,7 +66,6 @@ class ProfilerRegister {
         static shared_ptr<ProfilerRegister> singleton;
 
     public:
-
         static shared_ptr<ProfilerRegister> getInstance();
         static shared_ptr<ProfilerRegister> createInstance(string logFile);
         ProfilerRegister() = delete;

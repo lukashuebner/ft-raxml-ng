@@ -1,6 +1,7 @@
 #include <chrono>
 #include <thread>
 #include <iostream> 
+#include <cstdio>
 
 #include "RaxmlTest.hpp"
 #include "../../src/Profiler.hpp"
@@ -84,6 +85,7 @@ TEST(ProfilerTest, TimerBasics) {
         profiler.startTimer();
         std::this_thread::sleep_for(chrono::nanoseconds((1 << 20) + (1 << 8)));
         profiler.endTimer();
+        profiler.saveTimer(0);
     }
     end = chrono::high_resolution_clock::now();
     float eventsPerSecond = NUM_EVENTS / ((end - start).count() / pow(10, 9));
@@ -127,6 +129,19 @@ TEST(ProfilerTest, InvalidStates) {
     profiler.startTimer();
     profiler.abortTimer();
     ASSERT_ANY_THROW(profiler.endTimer());
+
+    // Try to save a running timer and an invalid timer
+    profiler = LogBinningProfiler("Testing");
+    profiler.startTimer();
+    ASSERT_ANY_THROW(profiler.saveTimer(0));
+
+    profiler = LogBinningProfiler("Testing");
+    profiler.startTimer();
+    ASSERT_ANY_THROW(profiler.startTimer());
+    ASSERT_ANY_THROW(profiler.saveTimer(0));
+
+    // Try to discard an invalid timer
+    ASSERT_ANY_THROW(profiler.discardTimer());
 }
 
 TEST(ProfilerTest, TestIsRunning) {
@@ -137,11 +152,13 @@ TEST(ProfilerTest, TestIsRunning) {
     ASSERT_TRUE(profiler.isRunning());
     profiler.endTimer();
     ASSERT_FALSE(profiler.isRunning());
+    profiler.saveTimer(0);
+    ASSERT_FALSE(profiler.isRunning());
 
     profiler.startTimer();
     profiler.abortTimer();
     ASSERT_FALSE(profiler.isRunning());
-    
+
     ASSERT_ANY_THROW(profiler.endTimer());
     ASSERT_ANY_THROW(profiler.isRunning());
 }
@@ -151,10 +168,18 @@ TEST(ProfilerTest, TimerCanBeAborted) {
 
     profiler.startTimer();
     ASSERT_NO_THROW(profiler.endTimer());
+    profiler.saveTimer(0);
     profiler.startTimer();
     ASSERT_NO_THROW(profiler.abortTimer());
     ASSERT_EQ(profiler.getHistogram()->numEvents(), 1);
+    ASSERT_NO_THROW(profiler.startTimer());
+    profiler.abortTimer();
     ASSERT_ANY_THROW(profiler.endTimer());
+
+    profiler = LogBinningProfiler("Testing");
+    profiler.startTimer();
+    profiler.endTimer();
+    ASSERT_ANY_THROW(profiler.abortTimer());
 }
 
 const string statsHeader = "rank,processor,timer,secondsPassed,\"[2^00,2^01) ns\",\"[2^01,2^02) ns\",\"[2^02,2^03) ns\",\"[2^03,2^04) ns\",\"[2^04,2^05) ns\",\"[2^05,2^06) ns\",\"[2^06,2^07) ns\",\"[2^07,2^08) ns\",\"[2^08,2^09) ns\",\"[2^09,2^10) ns\",\"[2^10,2^11) ns\",\"[2^11,2^12) ns\",\"[2^12,2^13) ns\",\"[2^13,2^14) ns\",\"[2^14,2^15) ns\",\"[2^15,2^16) ns\",\"[2^16,2^17) ns\",\"[2^17,2^18) ns\",\"[2^18,2^19) ns\",\"[2^19,2^20) ns\",\"[2^20,2^21) ns\",\"[2^21,2^22) ns\",\"[2^22,2^23) ns\",\"[2^23,2^24) ns\",\"[2^24,2^25) ns\",\"[2^25,2^26) ns\",\"[2^26,2^27) ns\",\"[2^27,2^28) ns\",\"[2^28,2^29) ns\",\"[2^29,2^30) ns\",\"[2^30,2^31) ns\",\"[2^31,2^32) ns\",\"[2^32,2^33) ns\",\"[2^33,2^34) ns\",\"[2^34,2^35) ns\",\"[2^35,2^36) ns\",\"[2^36,2^37) ns\",\"[2^37,2^38) ns\",\"[2^38,2^39) ns\",\"[2^39,2^40) ns\",\"[2^40,2^41) ns\",\"[2^41,2^42) ns\",\"[2^42,2^43) ns\",\"[2^43,2^44) ns\",\"[2^44,2^45) ns\",\"[2^45,2^46) ns\",\"[2^46,2^47) ns\",\"[2^47,2^48) ns\",\"[2^48,2^49) ns\",\"[2^49,2^50) ns\",\"[2^50,2^51) ns\",\"[2^51,2^52) ns\",\"[2^52,2^53) ns\",\"[2^53,2^54) ns\",\"[2^54,2^55) ns\",\"[2^55,2^56) ns\",\"[2^56,2^57) ns\",\"[2^57,2^58) ns\",\"[2^58,2^59) ns\",\"[2^59,2^60) ns\",\"[2^60,2^61) ns\",\"[2^61,2^62) ns\",\"[2^62,2^63) ns\",\"[2^63,2^64) ns\"\n";
@@ -228,7 +253,11 @@ TEST(ProfilerTest, ProfilerRegister) {
     auto hwProfiler = profilerRegister->getProfiler("hello_world()");
     hwProfiler->startTimer();
     hwProfiler->endTimer();
+    hwProfiler->saveTimer(0);
     ASSERT_EQ(hwProfiler->getHistogram()->numEvents(), 1);
+
+    ASSERT_EQ(0, remove("dummyFile_callsPerSecond.csv"));
+    ASSERT_EQ(0, remove("dummyFile_proFile.csv"));
 }
 
 TEST(ProfilerTest, PausingTimers) {
@@ -239,16 +268,19 @@ TEST(ProfilerTest, PausingTimers) {
     profiler.startTimer();
     for (int i = 0; i < 15; i++) {
         std::this_thread::sleep_for(chrono::nanoseconds((1 << 20)));
-        profiler.pauseTimer();
+        profiler.endTimer();
         std::this_thread::sleep_for(chrono::nanoseconds((1 << 24) + (1 << 15)));
         profiler.resumeTimer();
     }
     profiler.endTimer();
     end = chrono::high_resolution_clock::now();
+
+    profiler.saveTimer(0);
+    ASSERT_FALSE(profiler.isRunning());
+
     float eventsPerSecond = 1 / ((end - start).count() / pow(10, 9));
     auto hist = profiler.getHistogram();
 
-    cout << (string) *hist;
     for (int i = 0; i < 64; i++) {
         if (i == 24) {
             ASSERT_EQ((*hist)[i], 1);
@@ -259,4 +291,65 @@ TEST(ProfilerTest, PausingTimers) {
 
     ASSERT_EQ(hist->numEvents(), 1);
     ASSERT_NEAR(profiler.eventsPerSecond(), eventsPerSecond, eventsPerSecond * 0.01);
+}
+
+TEST(ProfilerTest, SavingTimersBasic) {
+    auto profiler = LogBinningProfiler("hello_world()");
+    ASSERT_ANY_THROW(profiler.saveTimer(0));
+
+    profiler = LogBinningProfiler("hello_world()");
+    ASSERT_ANY_THROW(profiler.discardTimer());
+
+    profiler = LogBinningProfiler("hello_world()");
+    ASSERT_ANY_THROW(profiler.abortTimer());
+
+    profiler = LogBinningProfiler("hello_world()");
+    profiler.startTimer();
+    ASSERT_ANY_THROW(profiler.discardTimer());
+}
+
+TEST(ProfilerTest, SavingTimersAdvanced) {
+    auto profiler = LogBinningProfiler("hello_world()");
+    profiler.startTimer();
+    ASSERT_TRUE(profiler.isRunning());
+    ASSERT_NO_THROW(profiler.abortTimer());
+    ASSERT_FALSE(profiler.isRunning());
+    
+    profiler = LogBinningProfiler("hello_world()");
+    profiler.startTimer();
+    profiler.endTimer();
+    profiler.resumeTimer();
+    ASSERT_ANY_THROW(profiler.discardTimer());
+    
+    profiler = LogBinningProfiler("hello_world()");
+    profiler.startTimer();
+    profiler.endTimer();
+    ASSERT_NO_THROW(profiler.saveTimer(100));
+    ASSERT_EQ(profiler.getHistogram()->numEvents(), 1);
+    
+    profiler.startTimer();
+    ASSERT_TRUE(profiler.isRunning());
+    profiler.endTimer();
+    profiler.discardTimer();
+    ASSERT_FALSE(profiler.isRunning());
+    ASSERT_EQ(profiler.getHistogram()->numEvents(), 1);
+    ASSERT_ANY_THROW(profiler.discardTimer());
+}
+
+TEST(ProfilerTest, SavingTimersOften) {
+    auto profiler = LogBinningProfiler("hello_word()");
+    for (int i = 0; i < 10; i++) {
+        profiler.startTimer();
+        profiler.endTimer();
+        ASSERT_FALSE(profiler.isRunning());
+        ASSERT_NO_THROW(profiler.discardTimer());
+        
+        profiler.startTimer();
+        profiler.endTimer();
+        profiler.resumeTimer();
+        profiler.endTimer();
+        profiler.saveTimer(1);
+        ASSERT_FALSE(profiler.isRunning());
+    }
+    ASSERT_EQ(profiler.getHistogram()->numEvents(), 10);
 }

@@ -48,12 +48,20 @@ uint8_t LogBinningProfiler::LogarithmicHistogram::log2i(uint64_t n) {
 LogBinningProfiler::LogBinningProfiler(string name) : name(name) {}
 
 void LogBinningProfiler::startTimer(bool resume) {
-    if (running) {
+    if (!resume && running) {
         invalid = true;
         throw runtime_error("The timer is already running.");
     } else if (invalid) {
         throw runtime_error("The timer is in an invalid state, probably the call sequence was not (start end)^n");
+    } else if (!resume && !savedOrDiscarded) {
+        invalid = true;
+        throw runtime_error("Timer has not been saved yet! Either save or discard it.");
+    } else if (resume && savedOrDiscarded) {
+        invalid = true;
+        throw runtime_error("Can't resume a timer that has already been saved or discarded.");
     }
+    
+    savedOrDiscarded = false;
     running = true;
     start = chrono::high_resolution_clock::now();
     assert(!(resume && firstStart == chrono::time_point<chrono::high_resolution_clock>::max()));
@@ -65,13 +73,11 @@ void LogBinningProfiler::startTimer(bool resume) {
     }
 }
 
-void LogBinningProfiler::endTimer(bool pause) {
+void LogBinningProfiler::endTimer() {
     // We can stop the timing now, as the timer will be left in an invalid state if something goes wrong.
     // The value in stop will then no longer be valid.
     end = chrono::high_resolution_clock::now();
-    if (!pause) {
-        lastEnd = end;
-    }
+    lastEnd = end;
 
     if (!running) {
         invalid = true;
@@ -79,19 +85,72 @@ void LogBinningProfiler::endTimer(bool pause) {
     } else if (invalid) {
         throw runtime_error("The timer is in an invalid state, probably the call sequence was not (start end)^n");
     }
+    assert(!savedOrDiscarded);
+    assert(running);
 
     running = false;
     int64_t timeDiff = ((chrono::nanoseconds) (end - start)).count();
     assert(timeDiff > 0 && "Timer ended before it started.");
-    if (pause) {
-        nsPassed += (uint64_t) timeDiff;
-    } else {
-        eventCounter->event((uint64_t) timeDiff + nsPassed);
-    }
+    nsPassed += (uint64_t) timeDiff;
 }
 
-void LogBinningProfiler::pauseTimer() {
-   endTimer(true); 
+uint64_t LogBinningProfiler::getTimer() const {
+    if (invalid) {
+        throw runtime_error("Trying to get an invalid timer.");
+    }
+    assert(!running);
+    return nsPassed;
+}
+
+void LogBinningProfiler::saveTimer(uint64_t min) {
+    if (invalid) {
+        throw runtime_error("Trying to save an invalid timer.");
+    } else if (running) {
+        invalid = true;
+        throw runtime_error("Trying to save a running timer.");
+    } else if (savedOrDiscarded) {
+        invalid = true;
+        throw  runtime_error("Timer was already saved (or never ran). Please (re)start if first.");
+    }
+
+    assert(nsPassed - min > 0);
+    savedOrDiscarded = true;
+    eventCounter->event(nsPassed - min);
+}
+
+void LogBinningProfiler::discardTimer() {
+    if (invalid) {
+        throw runtime_error("Invalid timers can't even be discarded, sorry.");
+    } if (running) {
+        invalid = true;
+        throw runtime_error("::discardTimer should be used on ended timers. For running timers, use ::abortTimer");
+    } if (savedOrDiscarded && nsPassed == 0) {
+        invalid = true;
+        throw runtime_error("Are you trying to discard a timer twice in a row?");
+    }
+
+    savedOrDiscarded = true;
+    nsPassed = 0;
+}
+
+void LogBinningProfiler::abortTimer() {
+    if (invalid) {
+        throw runtime_error("Trying to abort invalid timer");
+    } else if (!running) {
+        invalid = true;
+        throw runtime_error("Trying to abort non-running timer. Did you want to call ::discardTimer?");
+    }
+    running = false;
+    assert(!savedOrDiscarded);
+    savedOrDiscarded = true;
+    // start will be overwritten once the timer starts again
+}
+
+LogBinningProfiler::~LogBinningProfiler() {
+    if (!invalid) {
+        assert(!running);
+        assert(savedOrDiscarded);
+    }
 }
 
 void LogBinningProfiler::resumeTimer() {
@@ -102,6 +161,7 @@ shared_ptr<LogBinningProfiler::LogarithmicHistogram> LogBinningProfiler::getHist
     if (invalid) {
         throw runtime_error("Trying to get histogram of invalid timer");
     }
+    assert(eventCounter != nullptr);
     return eventCounter;
 }
 
@@ -119,14 +179,21 @@ LogBinningProfiler::LogarithmicHistogram::operator std::string () {
 }
 
 uint64_t LogBinningProfiler::LogarithmicHistogram::numEvents() const {
+    assert(bins != nullptr);
+    assert(bins->size() == numBins);
     return accumulate(bins->begin(), bins->end(), 0);
 }
 
 const shared_ptr<vector<uint64_t>> LogBinningProfiler::LogarithmicHistogram::data() const {
+    assert(bins != nullptr);
     return bins;
 }
 
 unique_ptr<ostream> LogBinningProfiler::writeStatsHeader(unique_ptr<ostream> file) {
+    if (file == nullptr) {
+        throw runtime_error("I will not write to a nullptr.");
+    }
+
     *file << "rank,processor,timer,secondsPassed,";
     for (int bit = 0; bit < 64; bit++) {
         *file << "\"[2^";
@@ -180,16 +247,6 @@ float LogBinningProfiler::eventsPerSecond() const {
         throw runtime_error("Trying to get event frequency on invalid timer.");
     }
     return timesCalled() / secondsPassed();
-}
-
-void LogBinningProfiler::abortTimer() {
-    if (invalid) {
-        throw runtime_error("Trying to abort invalid timer");
-    } else if (!running) {
-        throw runtime_error("Trying to abort non-running timer.");
-    }
-    running = false;
-    // start will be overwritten once the timer starts again
 }
 
 
