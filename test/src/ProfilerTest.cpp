@@ -95,7 +95,7 @@ TEST(ProfilerTest, TimerBasics) {
         if (i == 20) {
             ASSERT_GE((*hist)[i], 70);
         } else {
-            ASSERT_LE((*hist)[i], 5);
+            ASSERT_LE((*hist)[i], 7);
         }
     }
 
