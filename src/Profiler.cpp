@@ -14,13 +14,19 @@
 
 using namespace std;
 
-LogBinningProfiler::LogarithmicHistogram::LogarithmicHistogram()
-    : numBins(64) {
+LogBinningProfiler::LogarithmicHistogram::LogarithmicHistogram() {
     bins = std::make_shared<vector<uint64_t>>(numBins, 0);
 }
 
 void LogBinningProfiler::LogarithmicHistogram::event(uint64_t number) {
-    const uint8_t bin = log2i(number);
+    assert(bins != nullptr);
+
+    int16_t bin = log2i(number); // Returns -1 if number == 0
+    bin++; // Shift bins by one to be able to save 0
+    assert(bin >= 0);
+    assert(bin < numBins);
+    assert(numBins == bins->size());
+
     (*bins)[bin]++;
 }
 
@@ -32,7 +38,7 @@ const uint64_t& LogBinningProfiler::LogarithmicHistogram::operator[](size_t idx)
     return (*bins)[idx];
 }
 
-uint8_t LogBinningProfiler::LogarithmicHistogram::log2i(uint64_t n) {
+int16_t LogBinningProfiler::LogarithmicHistogram::log2i(uint64_t n) {
     if (n == 0) {
         return -1;
     }
@@ -113,7 +119,7 @@ void LogBinningProfiler::saveTimer(uint64_t min) {
         throw  runtime_error("Timer was already saved (or never ran). Please (re)start if first.");
     }
 
-    assert(nsPassed - min > 0);
+    assert(nsPassed >= min);
     savedOrDiscarded = true;
     eventCounter->event(nsPassed - min);
 }
@@ -171,10 +177,12 @@ const string LogBinningProfiler::getName() const {
 
 LogBinningProfiler::LogarithmicHistogram::operator std::string () {
     string str = "";
-    for (int i = 0; i < 63; i++) {
-        str += to_string((*bins)[i]) + ",";
+    for (int i = 0; i < numBins; i++) {
+        str += to_string((*bins)[i]);
+        if (i != numBins - 1) {
+            str += ",";
+        }
     }
-    str += to_string((*bins)[63]);
     return str;
 }
 
@@ -194,14 +202,14 @@ unique_ptr<ostream> LogBinningProfiler::writeStatsHeader(unique_ptr<ostream> fil
         throw runtime_error("I will not write to a nullptr.");
     }
 
-    *file << "rank,processor,timer,secondsPassed,";
-    for (int bit = 0; bit < 64; bit++) {
+    *file << "rank,processor,timer,secondsPassed,0 ns,";
+    for (int bit = 0; bit < LogarithmicHistogram::numBins - 1; bit++) {
         *file << "\"[2^";
         *file << setfill('0') << setw(2) << bit;
         *file << ",2^";
         *file << setfill('0') << setw(2) << bit + 1;
         *file << ") ns\"";
-        if (bit != 63) {
+        if (bit != LogarithmicHistogram::numBins - 2) {
             *file << ",";
         } else {
             *file << endl;
@@ -220,11 +228,11 @@ unique_ptr<ostream> LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> 
     } 
 
     // Output data
-    for (size_t rank = 0; rank < data->size() / 64; rank++) {
+    for (size_t rank = 0; rank < data->size() / LogarithmicHistogram::numBins; rank++) {
         *file << to_string(rank) + "," + (*rankToProcessorName)(rank) + "," + timerName + "," + to_string(secondsPassed) + ",";
-        for (int timing = 0; timing < 64; timing++) {
-            *file << (*data)[rank * 64 + timing];
-            if (timing != 63) {
+        for (int timing = 0; timing < LogarithmicHistogram::numBins; timing++) {
+            *file << (*data)[rank * LogarithmicHistogram::numBins + timing];
+            if (timing != LogarithmicHistogram::numBins - 1) {
                 *file << ",";
             } else {
                 *file << endl;
@@ -332,7 +340,7 @@ void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (
         if (master) {
             auto allTimingsVec = make_shared<vector<uint64_t>>(num_ranks * timings->size());
             MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
-                    allTimingsVec->data(), 64, MPI_UINT64_T,
+                    allTimingsVec->data(), LogBinningProfiler::LogarithmicHistogram::numBins, MPI_UINT64_T,
                     0, comm);
 
             proFile = LogBinningProfiler::writeStats(allTimingsVec, move(proFile), timer->getName(), rankToProcessorName, secondsPassed);

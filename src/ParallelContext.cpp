@@ -65,8 +65,9 @@ void ParallelContext::fail(size_t rankId, uint64_t on_nth_call) {
 #endif
 
 #ifdef _RAXML_PROFILE
-LogBinningProfiler mpiTimer("MPI");
-LogBinningProfiler workTimer("Work");
+  auto profilerRegister = ProfilerRegister::createInstance("profile_2.csv");
+auto allreduceTimer = profilerRegister->registerProfiler("MPI_Allreduce");
+auto workTimer = profilerRegister->registerProfiler("Work");
 bool profilingHeaderWritten = false;
 #endif
 
@@ -102,8 +103,6 @@ void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
   detect_num_nodes();
 //    printf("nodes: %lu\n", _num_nodes);
 
-  auto profilerRegister = ProfilerRegister::createInstance("profile_2.csv");
-  profilerRegister->registerProfiler("");
 #else
   RAXML_UNUSED(argc);
   RAXML_UNUSED(argv);
@@ -331,7 +330,10 @@ void ParallelContext::detect_num_nodes()
 }
 
 void ParallelContext::saveProfilingData() {
-    ProfilerRegister::getInstance()->saveProfilingData(master(), _num_ranks, &(ParallelContext::rankToProcessorName), _comm);
+  assert(workTimer->isRunning());
+  assert(!allreduceTimer->isRunning());
+  workTimer->abortTimer();
+  ProfilerRegister::getInstance()->saveProfilingData(master(), _num_ranks, &(ParallelContext::rankToProcessorName), _comm);
 }
 
 void ParallelContext::resize_buffer(size_t size)
@@ -367,6 +369,10 @@ void ParallelContext::finalize(bool force)
 	fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
     }
 
+    assert(!allreduceTimer->isRunning());
+    if (workTimer->isRunning()) {
+      workTimer->abortTimer();
+    }
     MPI_Finalize();
   }
   else {
@@ -554,7 +560,35 @@ void ParallelContext::parallel_reduce(double * data, size_t size, int op)
 
 void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t size, int op)
 {
+  uint64_t minTime[2];
+  const uint8_t MPI_ALLREDUCE = 0;
+  const uint8_t WORK = 1;
+  bool workTimerRan;
+  if (workTimer->isRunning()) {
+    workTimer->endTimer();
+    minTime[WORK] = workTimer->getTimer();
+    workTimerRan = true;
+  } else {
+    minTime[WORK] = 0;
+    workTimerRan = false;
+  }
+  assert(!allreduceTimer->isRunning());
+  if (_num_threads > 1) {
+    throw runtime_error("Profiling with more than one thread per rank not implemented.");
+  }
+  allreduceTimer->startTimer();
   ParallelContext::parallel_reduce(data, size, op);
+  allreduceTimer->endTimer();
+  minTime[MPI_ALLREDUCE] = allreduceTimer->getTimer();
+
+  // Collect how long each rank took to do Work and parallel_reduce
+  MPI_Allreduce(MPI_IN_PLACE, &minTime, 2, MPI_UINT64_T, MPI_MIN, _comm);
+  if (workTimerRan) {
+    workTimer->saveTimer(minTime[WORK]);
+  }
+  allreduceTimer->saveTimer(minTime[MPI_ALLREDUCE]);
+
+  workTimer->startTimer();
   RAXML_UNUSED(context);
 }
 

@@ -7,9 +7,8 @@ class LogBinningProfiler {
     public:
         class LogarithmicHistogram {
             private:
-                const uint8_t numBins;
                 shared_ptr<vector<uint64_t>> bins;
-                uint8_t log2i(uint64_t n);
+                int16_t log2i(uint64_t n);
 
             public:
                 explicit LogarithmicHistogram();
@@ -19,6 +18,7 @@ class LogBinningProfiler {
                 const shared_ptr<vector<uint64_t>> data() const;
                 operator std::string();
                 uint64_t numEvents() const;
+                static const uint16_t numBins = 65;
         };
 
     private:
