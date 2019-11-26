@@ -127,7 +127,7 @@ ns2us <- function(timeInNs) {
   return(timeInNs / 1000)
 }
 
-breaksGenerator <- function(limits) {
+yBreaksGenerator <- function(limits) {
   lower <- limits[1]
   upper <- limits[2]
   
@@ -135,7 +135,7 @@ breaksGenerator <- function(limits) {
   return(breaks)
 }
 
-labelGenerator <- function(breaks) {
+yLabelGenerator <- function(breaks) {
   sapply(breaks, function(time) {
     if (is.na(time)) {
       return("")
@@ -156,15 +156,37 @@ labelGenerator <- function(breaks) {
     return(paste(time, unit))
 })}
 
+xBreaksGenerator <- function(limits) {
+  lower <- limits[1]
+  upper <- limits[2]
+  range <- upper - lower
+  withoutPadding <- range / 1.02
+  interSegementSpace <- withoutPadding - withoutPadding / 1.03
+  dataRange <- withoutPadding - interSegementSpace
+  rankRange <- dataRange / 2
+  midOfLeft <- rankRange / 2
+  midOfRight <- rankRange + interSegementSpace + rankRange / 2
+  
+  breaks <- c(midOfLeft, midOfRight)
+  return(breaks)
+}
+
+xLabelsGenerator <- function(breaks) {
+  return(c("MPI_Allreduce", "Work"))
+}
+
+twentyColors = c("#023fa5", "#bec1d4", "#7d87b9", "#d6bcc0", "#8e063b", "#bb7784", "#4a6fe3", "#b5bbe3", "#8595e1", "#e07b91", "#e6afb9", 
+                 "#11c638", "#d33f6a", "#8dd593", "#ead3c6", "#c6dec7", "#f0b98d", "#0fcfc0", "#ef9708", "#9cded6", "#f3e1eb", "#d5eae7",
+                 "#f6c4e1", "#f79cd4")
 
 ggplot() +
   geom_linerange(
     data = filter(proFileData_timeless, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = "MPI_Allreduce")
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileData_timeless, timer == "Work"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] + 1, color = "Work")
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileData_timeless, timer == "MPI_Allreduce"),
@@ -174,7 +196,7 @@ ggplot() +
   ) +
   geom_point(
     data = filter(proFileData_timeless, timer == "Work"),
-    mapping = aes(y = midBin(medianBin), x = rank + maxRanks[as.character(dataset)] + 1),
+    mapping = aes(y = midBin(medianBin), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1),
     color = "black",
     size = 0.5
   ) +
@@ -183,19 +205,24 @@ ggplot() +
   #  limits = binFactorRange(union(proFileData_timeless$q95, proFileData_timeless$q05))
   #) +
   scale_y_log10(
-    breaks = breaksGenerator,
-    labels = labelGenerator
+    breaks = yBreaksGenerator,
+    labels = yLabelGenerator
+  ) +
+  scale_x_continuous(
+    breaks = xBreaksGenerator,
+    labels = xLabelsGenerator,
+    expand = c(0.02, 0)
   ) +
   theme_bw() +
   theme(
-    #axis.text.x = element_text(angle = 60, hjust = 1),
     panel.grid.minor.x = element_blank(),
-    panel.grid.major.x = element_blank(),
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank()) +
-  scale_fill_brewer(palette = "Dark2") +
+    panel.grid.major.x = element_blank()
+  ) +
+  scale_color_manual(values = twentyColors) +
+  guides(color = FALSE) +
   labs(
     x = "rank",
     y = "0.05 to 0.95 quantiles of time difference to fastest rank",
-    colour = "Code Segment")
+    colour = "Code Segment"
+  )
   
