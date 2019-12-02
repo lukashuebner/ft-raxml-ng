@@ -31,7 +31,7 @@ dataset2Label <- function(s) {
 }
 
 ### Setup variables ###
-csvDir <- "/home/lukas/Documents/Uni/Masterarbeit/raxml-run/collection3"
+csvDir <- "/home/lukas/Documents/Uni/Masterarbeit/raxml-run/relative"
 
 ### Data loading ###
 # load profiling data from single csv file and add `dataset` column
@@ -294,3 +294,91 @@ ggplot(
     y = "0.95 quantile slower than fastest"
   )
 
+
+### Absolute plots
+csvDirAbsolute <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/absolute"
+
+# load profiling data from single csv file and add `dataset` column
+readFileAbsolute <- function(flnm) {
+  read_csv(flnm, col_types = "icciiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii") %>%
+    mutate(dataset = str_extract(flnm, "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}"))
+}
+
+# Load all profiling data from multiple runs and aggregate it into `data`
+proFileData <-
+  list.files(
+    path = csvDirAbsolute,  
+    pattern = "*.csv", 
+    full.names = T) %>% 
+  map_df(~readFileAbsolute(.)) %>%
+  as_tibble() %>%
+  mutate(timer = factor(timer)) %>%
+  mutate(dataset = factor(dataset))
+
+proFileData$eventCount <- proFileData %>%
+  select(-rank, -processor, -timer, -dataset) %>%
+  rowSums
+
+proFileData$medianBin <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.5))
+proFileData$medianBin <- factor(proFileData$medianBin, levels = binFactorLevels)
+proFileData$q05 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.05))
+proFileData$q95 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.95))
+
+### Plotting ###
+
+datasetLabels <- unique(proFileData$dataset)
+names(datasetLabels) <- datasetLabels
+datasetLabels <- map_chr(datasetLabels, dataset2Label)
+
+datasets <- unique(proFileData$dataset)
+maxRanks <- map_int(datasets, function(ds) {
+  max(filter(proFileData, dataset == ds)$rank)
+})
+names(maxRanks) <- datasets
+
+ggplot() +
+  geom_linerange(
+    data = filter(proFileData, timer == "MPI_Allreduce"),
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
+  ) +
+  geom_linerange(
+    data = filter(proFileData, timer == "Work"),
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+  ) +
+  geom_point(
+    data = filter(proFileData, timer == "MPI_Allreduce"),
+    mapping = aes(y = midBin(medianBin), x = rank),
+    color = "black",
+    size = 0.5
+  ) +
+  geom_point(
+    data = filter(proFileData, timer == "Work"),
+    mapping = aes(y = midBin(medianBin), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1),
+    color = "black",
+    size = 0.5
+  ) +
+  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) +
+  #scale_y_discrete(
+  #  limits = binFactorRange(union(proFileData_timeless$q95, proFileData_timeless$q05))
+  #) +
+  scale_y_log10(
+    breaks = yBreaksGenerator,
+    labels = yLabelGenerator
+  ) +
+  scale_x_continuous(
+    breaks = xBreaksGenerator,
+    labels = xLabelsGenerator,
+    expand = c(0.02, 0)
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  scale_color_manual(values = twentyColors) +
+  guides(color = FALSE) +
+  labs(
+    x = "rank",
+    y = "0.05 to 0.95 quantiles of absolute time spent in code segment",
+    colour = "Code Segment"
+  )
