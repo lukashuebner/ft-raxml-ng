@@ -226,3 +226,71 @@ ggplot() +
     colour = "Code Segment"
   )
   
+### Behaviour of plots over time
+# proFileData_long <- proFileData %>%
+#   gather(key = bin, value = count, ends_with(" ns"))
+
+proFileData$eventCount <- proFileData %>%
+  select(ends_with(" ns")) %>%
+  rowSums
+
+proFileData$slowest <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 1))
+proFileData$slowest <- factor(proFileData$medianBin, levels = binFactorLevels)
+
+undominatedRanks <- proFileData %>%
+  filter(timer == "Work") %>%
+  group_by(dataset, secondsPassed) %>%
+  arrange() %>%
+  summarise(
+    max = max(midBin(slowest)),
+    rank = which.max(midBin(slowest)))
+
+undominatedRanks <-
+  left_join(
+    undominatedRanks,
+    filter(proFileData, timer == "Work"),
+    by = c("dataset", "secondsPassed", "rank")
+  ) %>%
+  select(dataset, rank) %>%
+  unique
+
+getUndominatedRanks <- function(ds) {
+  return(unique(filter(undominatedRanks, dataset == ds)$rank))
+}
+
+undominatedRanks_list = map(unique(undominatedRanks$dataset), getUndominatedRanks)
+names(undominatedRanks_list) = unique(undominatedRanks$dataset)
+
+proFileData$color = map2_int(proFileData$rank, proFileData$dataset, function(rank, dataset) {
+  #return(rank %in% undominatedRanks_list[[dataset]])
+  match(rank, undominatedRanks_list[[dataset]]) # Will be NA if not found
+})
+
+ggplot(
+    data = filter(proFileData, !is.na(color))
+  ) +
+  geom_col(aes(x = as.factor(secondsPassed), y = ns2us(midBin(slowest)), fill = as.factor(color)), position = position_dodge()) +
+  scale_fill_brewer(palette = "Dark2") +
+  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels), ncol = 1) +
+  # scale_y_log10(
+  #   breaks = yBreaksGenerator,
+  #   labels = yLabelGenerator
+  # ) +
+  # scale_x_continuous(
+  #   breaks = xBreaksGenerator,
+  #   labels = xLabelsGenerator,
+  #   expand = c(0.02, 0)
+  # ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  guides(fill = FALSE) +
+  labs(
+    x = "runtime",
+    y = "0.95 quantile slower than fastest"
+  )
+
