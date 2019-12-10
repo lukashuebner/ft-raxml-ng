@@ -7,6 +7,7 @@ library(ggplot2)
 library(lemon)
 library(functional)
 library(forcats)
+library(svglite)
 
 ### Helpers ###
 # Bin factor levels and helper funcitons
@@ -235,7 +236,10 @@ proFileData$eventCount <- proFileData %>%
   rowSums
 
 proFileData$slowest <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 1))
-proFileData$slowest <- factor(proFileData$medianBin, levels = binFactorLevels)
+proFileData$slowest <- factor(proFileData$slowest, levels = binFactorLevels)
+
+proFileData$q95 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.95))
+proFileData$q95 <- factor(proFileData$q95, levels = binFactorLevels)
 
 undominatedRanks <- proFileData %>%
   filter(timer == "Work") %>%
@@ -266,16 +270,48 @@ proFileData$color = map2_int(proFileData$rank, proFileData$dataset, function(ran
   match(rank, undominatedRanks_list[[dataset]]) # Will be NA if not found
 })
 
+# Bar chart difference slowest, fastest
 ggplot(
     data = filter(proFileData, !is.na(color))
   ) +
-  geom_col(aes(x = as.factor(secondsPassed), y = ns2us(midBin(slowest)), fill = as.factor(color)), position = position_dodge()) +
+  geom_col(aes(x = as.factor(secondsPassed), y = midBin(slowest), fill = as.factor(color)), position = position_dodge()) +
   scale_fill_brewer(palette = "Dark2") +
   facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels), ncol = 1) +
-  # scale_y_log10(
-  #   breaks = yBreaksGenerator,
-  #   labels = yLabelGenerator
+  scale_y_log10(
+    breaks = yBreaksGenerator,
+    labels = yLabelGenerator
+  ) +
+  # scale_x_continuous(
+  #   breaks = xBreaksGenerator,
+  #   labels = xLabelsGenerator,
+  #   expand = c(0.02, 0)
   # ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  guides(fill = FALSE) +
+  labs(
+    x = "checkpoint",
+    y = "time difference of slowest and fastest rank"
+  )
+
+# Slowest rank over time
+datasetLabelsOneLine = map_chr(datasetLabels, function(s) { str_replace(s, "\n", " ")})
+
+slowestData <- filter(proFileData, !is.na(color)) %>%
+  group_by(secondsPassed, dataset) %>%
+  summarise(slowest = max(midBin(slowest)))
+  
+ggplot(data = slowestData) +
+  geom_line(aes(x = secondsPassed, y = slowest)) +
+  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabelsOneLine), ncol = 1) +
+  scale_y_continuous(
+    labels = yLabelGenerator
+  ) +
   # scale_x_continuous(
   #   breaks = xBreaksGenerator,
   #   labels = xLabelsGenerator,
@@ -291,9 +327,10 @@ ggplot(
   guides(fill = FALSE) +
   labs(
     x = "runtime",
-    y = "0.95 quantile slower than fastest"
+    y = "time difference of slowest and fastest rank"
   )
-
+ggsave(filename = "/slowest_over_time_small.svg", device = "svg", path = "~", 
+       height = 6.86, width = 12.2, units = "in", dpi = 200)
 
 ### Absolute plots
 csvDirAbsolute <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/absolute"
