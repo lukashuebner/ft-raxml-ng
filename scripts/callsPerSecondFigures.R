@@ -22,7 +22,7 @@ dataDistribution <- dataDistribution %>%
   mutate(dataset = factor(dataset2Label(dataset), levels = dataset2Label(datasetLevels)))
 
 ### Setup variables ###
-csvDir <- "/home/lukas/Documents/Uni/Masterarbeit/raxml-run/collection3"
+csvDir <- "/home/lukas/Documents/Uni/Masterarbeit/raxml-run/relative"
 
 ### Data loading ###
 # load data from single csv file and add `dataset` column
