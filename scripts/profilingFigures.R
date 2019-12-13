@@ -231,7 +231,67 @@ ggplot() +
     y = "range of time difference to fastest rank",
     colour = "Code Segment"
   )
-  
+
+proFileData_timeless_long <- proFileData_timeless %>%
+  filter(dataset == "dna_rokasD1_20@4", timer == "Work") %>%
+  gather(
+    key = "bin",
+    value = "count",
+    ends_with(" ns")
+  )
+
+ggplot(
+    data = filter(proFileData_timeless_long, dataset == "dna_rokasD1_20@4", timer == "Work"),
+    aes(x = rank)
+  ) +
+  geom_crossbar(aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), y = midBin(medianBin))) +
+  geom_text(
+    data = filter(proFileData_timeless_long,
+      dataset == "dna_rokasD1_20@4",
+      timer == "Work", midBin(bin) > upperBinBorder(q95),
+      count != 0
+    ),
+    aes(
+      y = midBin(bin),
+      label = signif(count / eventCount, digits = 1)
+    ),
+    size = 2.5
+  ) + 
+  geom_text(
+    data = filter(proFileData_timeless_long,
+      dataset == "dna_rokasD1_20@4",
+      timer == "Work", midBin(bin) < lowerBinBorder(q05),
+      count != 0
+    ),
+    aes(
+      y = midBin(bin),
+      label = signif(count / eventCount, digits = 1)
+    ),
+    size = 2.5
+  ) + 
+  facet_wrap(~processor, scale = "free") +
+  scale_y_log10(
+    breaks = yBreaksGenerator,
+    labels = yLabelGenerator
+  ) +
+  # scale_x_continuous(
+  #   breaks = xBreaksGenerator,
+  #   labels = xLabelsGenerator,
+  #   expand = c(0.02, 0)
+  # ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  scale_color_manual(values = rep(twentyColors, 4)) +
+  guides(color = FALSE) +
+  labs(
+    x = "rank",
+    y = "range of time difference to fastest rank",
+    colour = "Code Segment"
+  )
+
 ### Behaviour of plots over time
 # proFileData_long <- proFileData %>%
 #   gather(key = bin, value = count, ends_with(" ns"))
