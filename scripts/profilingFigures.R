@@ -82,8 +82,13 @@ hist_quantile_bin <- function(row, quantile) {
 
 proFileData_timeless$medianBin <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.5))
 proFileData_timeless$medianBin <- factor(proFileData_timeless$medianBin, levels = binFactorLevels)
+proFileData_timeless$q00 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.00))
 proFileData_timeless$q05 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.05))
+proFileData_timeless$q25 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.25))
+proFileData_timeless$q75 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.75))
 proFileData_timeless$q95 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.95))
+proFileData_timeless$q100 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 1.00))
+
 
 ### Plotting ###
 
@@ -183,11 +188,11 @@ twentyColors = c("#023fa5", "#bec1d4", "#7d87b9", "#d6bcc0", "#8e063b", "#bb7784
 ggplot() +
   geom_linerange(
     data = filter(proFileData_timeless, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileData_timeless, timer == "Work"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileData_timeless, timer == "MPI_Allreduce"),
@@ -223,7 +228,7 @@ ggplot() +
   guides(color = FALSE) +
   labs(
     x = "rank",
-    y = "0.05 to 0.95 quantiles of time difference to fastest rank",
+    y = "range of time difference to fastest rank",
     colour = "Code Segment"
   )
   
@@ -358,8 +363,12 @@ proFileData$eventCount <- proFileData %>%
 
 proFileData$medianBin <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.5))
 proFileData$medianBin <- factor(proFileData$medianBin, levels = binFactorLevels)
+proFileData$q00 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.00))
 proFileData$q05 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.05))
+proFileData$q25 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.25))
+proFileData$q75 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.75))
 proFileData$q95 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.95))
+proFileData$q100 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 1.00))
 
 ### Plotting ###
 
@@ -376,11 +385,11 @@ names(maxRanks) <- datasets
 ggplot() +
   geom_linerange(
     data = filter(proFileData, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileData, timer == "Work"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileData, timer == "MPI_Allreduce"),
@@ -416,6 +425,8 @@ ggplot() +
   guides(color = FALSE) +
   labs(
     x = "rank",
-    y = "0.05 to 0.95 quantiles of absolute time spent in code segment",
+    y = "range of absolute time spent in code segment",
+    colour = "Code Segment"
+  )
     colour = "Code Segment"
   )
