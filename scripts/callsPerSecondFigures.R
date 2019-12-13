@@ -63,7 +63,7 @@ callsPerSecondData %>%
     y = callsPerSecond,
     color = dataset
   )) +
-  geom_point(size=0.7) +
+  #geom_point(size=0.7) +
   geom_line() + 
   theme_bw() +
   theme(legend.key.height = unit(1.5, "line")) +
