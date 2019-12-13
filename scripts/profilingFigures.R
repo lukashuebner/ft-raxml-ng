@@ -488,5 +488,92 @@ ggplot() +
     y = "range of absolute time spent in code segment",
     colour = "Code Segment"
   )
+
+### Different MPI Implementations ###
+csvDirDifferentMPI <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/differentMpiIImplementations"
+
+# load profiling data from single csv file and add `dataset` column
+readFile <- function(flnm) {
+  read_csv(flnm, col_types = "icciiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii") %>%
+    mutate(dataset = str_extract(basename(flnm), "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}")) %>%
+    mutate(mpi = str_extract(basename(flnm), "^([:alnum:]|\\.)+"))
+}
+
+# Load all profiling data from multiple runs and aggregate it into `data`
+proFileData_diffMPI <-
+  list.files(
+    path = csvDirDifferentMPI,  
+    pattern = "*.proFile.csv", 
+    full.names = T) %>% 
+  map_df(~readFile(.)) %>%
+  as_tibble() %>%
+  mutate(timer = factor(timer)) %>%
+  mutate(dataset = factor(dataset))
+
+# Clean-up
+proFileData_diffMPI <- filter(proFileData_diffMPI, secondsPassed > 0) %>% # For secondsPassed = 0, there are to few measurements
+  mutate(processor = str_extract(processor, "[:alnum:]+(?=.localdomain)")) # Remove .localdomain at end of hostnames
+
+# Conversion to double is needed to avoid integer overflow
+proFileData_diffMPI_timeless <- proFileData_diffMPI %>%
+  group_by(rank, processor, timer, dataset, mpi) %>%
+  select(-secondsPassed) %>%
+  summarise_each(funs(sum(as.numeric(.)))) %>%
+  ungroup()
+
+### Secondary metrices ###
+proFileData_diffMPI_timeless$eventCount <- proFileData_diffMPI_timeless %>%
+  select(-rank, -processor, -timer, -dataset, -mpi) %>%
+  rowSums
+
+proFileData_diffMPI_timeless$medianBin <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.5))
+proFileData_diffMPI_timeless$medianBin <- factor(proFileData_diffMPI_timeless$medianBin, levels = binFactorLevels)
+proFileData_diffMPI_timeless$q05 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.05))
+proFileData_diffMPI_timeless$q95 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.95))
+
+ggplot() +
+  geom_linerange(
+    data = filter(proFileData_diffMPI_timeless, timer == "MPI_Allreduce"),
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
+  ) +
+  geom_linerange(
+    data = filter(proFileData_diffMPI_timeless, timer == "Work"),
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+  ) +
+  geom_point(
+    data = filter(proFileData_diffMPI_timeless, timer == "MPI_Allreduce"),
+    mapping = aes(y = midBin(medianBin), x = rank),
+    color = "black",
+    size = 0.5
+  ) +
+  geom_point(
+    data = filter(proFileData_diffMPI_timeless, timer == "Work"),
+    mapping = aes(y = midBin(medianBin), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1),
+    color = "black",
+    size = 0.5
+  ) +
+  facet_grid(vars(mpi), vars(dataset), scale = "free", labeller = labeller(dataset = datasetLabels)) +
+  #scale_y_discrete(
+  #  limits = binFactorRange(union(proFileData_timeless$q95, proFileData_timeless$q05))
+  #) +
+  scale_y_log10(
+    breaks = yBreaksGenerator,
+    labels = yLabelGenerator
+  ) +
+  scale_x_continuous(
+    breaks = xBreaksGenerator,
+    labels = xLabelsGenerator,
+    expand = c(0.02, 0)
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  scale_color_manual(values = twentyColors) +
+  guides(color = FALSE) +
+  labs(
+    x = "rank",
+    y = "0.05 to 0.95 quantiles of time difference to fastest rank",
     colour = "Code Segment"
   )
