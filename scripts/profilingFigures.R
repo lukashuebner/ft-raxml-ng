@@ -207,9 +207,6 @@ ggplot() +
     size = 0.5
   ) +
   facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) +
-  #scale_y_discrete(
-  #  limits = binFactorRange(union(proFileData_timeless$q95, proFileData_timeless$q05))
-  #) +
   scale_y_log10(
     breaks = yBreaksGenerator,
     labels = yLabelGenerator
@@ -452,9 +449,6 @@ ggplot() +
     size = 0.5
   ) +
   facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) +
-  #scale_y_discrete(
-  #  limits = binFactorRange(union(proFileData_timeless$q95, proFileData_timeless$q05))
-  #) +
   scale_y_log10(
     breaks = yBreaksGenerator,
     labels = yLabelGenerator
