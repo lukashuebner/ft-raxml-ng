@@ -32,39 +32,39 @@ dataset2Label <- function(s) {
 }
 
 ### Setup variables ###
-csvDir <- "/home/lukas/Documents/Uni/Masterarbeit/raxml-run/relative"
+csvDirRelative <- "/home/lukas/Documents/Uni/Masterarbeit/raxml-run/relative"
 
 ### Data loading ###
 # load profiling data from single csv file and add `dataset` column
-readFile <- function(flnm) {
+readFileRelative <- function(flnm) {
   read_csv(flnm, col_types = "icciiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii") %>%
     mutate(dataset = str_extract(flnm, "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}"))
 }
 
 # Load all profiling data from multiple runs and aggregate it into `data`
-proFileData <-
+proFileDataRelative <-
   list.files(
-    path = csvDir,  
+    path = csvDirRelative,  
     pattern = "*.proFile.csv", 
     full.names = T) %>% 
-  map_df(~readFile(.)) %>%
+  map_df(~readFileRelative(.)) %>%
   as_tibble() %>%
   mutate(timer = factor(timer)) %>%
   mutate(dataset = factor(dataset))
 
 # Clean-up
-proFileData <- filter(proFileData, secondsPassed > 0) %>% # For secondsPassed = 0, there are to few measurements
+proFileDataRelative <- filter(proFileDataRelative, secondsPassed > 0) %>% # For secondsPassed = 0, there are to few measurements
   mutate(processor = str_extract(processor, "[:alnum:]+(?=.localdomain)")) # Remove .localdomain at end of hostnames
 
 # Conversion to double is needed to avoid integer overflow
-proFileData_timeless <- proFileData %>%
+proFileDataRelative_timeless <- proFileDataRelative %>%
   group_by(rank, processor, timer, dataset) %>%
   select(-secondsPassed) %>%
   summarise_each(funs(sum(as.numeric(.)))) %>%
   ungroup()
 
 ### Secondary metrices ###
-proFileData_timeless$eventCount <- proFileData_timeless %>%
+proFileDataRelative_timeless$eventCount <- proFileDataRelative_timeless %>%
   select(-rank, -processor, -timer, -dataset) %>%
   rowSums
 
@@ -80,25 +80,25 @@ hist_quantile_bin <- function(row, quantile) {
   }
 }
 
-proFileData_timeless$medianBin <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.5))
-proFileData_timeless$medianBin <- factor(proFileData_timeless$medianBin, levels = binFactorLevels)
-proFileData_timeless$q00 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.00))
-proFileData_timeless$q05 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.05))
-proFileData_timeless$q25 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.25))
-proFileData_timeless$q75 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.75))
-proFileData_timeless$q95 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 0.95))
-proFileData_timeless$q100 <- by(proFileData_timeless, 1:nrow(proFileData_timeless), Curry(hist_quantile_bin, quantile = 1.00))
+proFileDataRelative_timeless$medianBin <- by(proFileDataRelative_timeless, 1:nrow(proFileDataRelative_timeless), Curry(hist_quantile_bin, quantile = 0.5))
+proFileDataRelative_timeless$medianBin <- factor(proFileDataRelative_timeless$medianBin, levels = binFactorLevels)
+proFileDataRelative_timeless$q00 <- by(proFileDataRelative_timeless, 1:nrow(proFileDataRelative_timeless), Curry(hist_quantile_bin, quantile = 0.00))
+proFileDataRelative_timeless$q05 <- by(proFileDataRelative_timeless, 1:nrow(proFileDataRelative_timeless), Curry(hist_quantile_bin, quantile = 0.05))
+proFileDataRelative_timeless$q25 <- by(proFileDataRelative_timeless, 1:nrow(proFileDataRelative_timeless), Curry(hist_quantile_bin, quantile = 0.25))
+proFileDataRelative_timeless$q75 <- by(proFileDataRelative_timeless, 1:nrow(proFileDataRelative_timeless), Curry(hist_quantile_bin, quantile = 0.75))
+proFileDataRelative_timeless$q95 <- by(proFileDataRelative_timeless, 1:nrow(proFileDataRelative_timeless), Curry(hist_quantile_bin, quantile = 0.95))
+proFileDataRelative_timeless$q100 <- by(proFileDataRelative_timeless, 1:nrow(proFileDataRelative_timeless), Curry(hist_quantile_bin, quantile = 1.00))
 
 
 ### Plotting ###
 
-datasetLabels <- unique(proFileData_timeless$dataset)
+datasetLabels <- unique(proFileDataRelative_timeless$dataset)
 names(datasetLabels) <- datasetLabels
 datasetLabels <- map_chr(datasetLabels, dataset2Label)
 
-datasets <- unique(proFileData_timeless$dataset)
+datasets <- unique(proFileDataRelative_timeless$dataset)
 maxRanks <- map_int(datasets, function(ds) {
-  max(filter(proFileData_timeless, dataset == ds)$rank)
+  max(filter(proFileDataRelative_timeless, dataset == ds)$rank)
 })
 names(maxRanks) <- datasets
 
@@ -187,21 +187,21 @@ twentyColors = c("#023fa5", "#bec1d4", "#7d87b9", "#d6bcc0", "#8e063b", "#bb7784
 
 ggplot() +
   geom_linerange(
-    data = filter(proFileData_timeless, timer == "MPI_Allreduce"),
+    data = filter(proFileDataRelative_timeless, timer == "MPI_Allreduce"),
     mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
-    data = filter(proFileData_timeless, timer == "Work"),
+    data = filter(proFileDataRelative_timeless, timer == "Work"),
     mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
-    data = filter(proFileData_timeless, timer == "MPI_Allreduce"),
+    data = filter(proFileDataRelative_timeless, timer == "MPI_Allreduce"),
     mapping = aes(y = midBin(medianBin), x = rank),
     color = "black",
     size = 0.5
   ) +
   geom_point(
-    data = filter(proFileData_timeless, timer == "Work"),
+    data = filter(proFileDataRelative_timeless, timer == "Work"),
     mapping = aes(y = midBin(medianBin), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1),
     color = "black",
     size = 0.5
@@ -232,8 +232,9 @@ ggplot() +
     colour = "Code Segment"
   )
 
-proFileData_timeless_long <- proFileData_timeless %>%
-  filter(dataset == "dna_rokasD1_20@4", timer == "Work") %>%
+# Boxplot of range of difference to fastest rank
+proFileDataRelative_timeless_long <- proFileDataRelative_timeless %>%
+  filter(dataset == "dna_rokasD1_20@4", timer == "MPI_Allreduce") %>%
   gather(
     key = "bin",
     value = "count",
@@ -241,26 +242,13 @@ proFileData_timeless_long <- proFileData_timeless %>%
   )
 
 ggplot(
-    data = filter(proFileData_timeless_long, dataset == "dna_rokasD1_20@4", timer == "Work"),
+    data = filter(proFileDataRelative_timeless_long),
     aes(x = rank)
   ) +
   geom_crossbar(aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), y = midBin(medianBin))) +
   geom_text(
-    data = filter(proFileData_timeless_long,
-      dataset == "dna_rokasD1_20@4",
-      timer == "Work", midBin(bin) > upperBinBorder(q95),
-      count != 0
-    ),
-    aes(
-      y = midBin(bin),
-      label = signif(count / eventCount, digits = 1)
-    ),
-    size = 2.5
-  ) + 
-  geom_text(
-    data = filter(proFileData_timeless_long,
-      dataset == "dna_rokasD1_20@4",
-      timer == "Work", midBin(bin) < lowerBinBorder(q05),
+    data = filter(proFileDataRelative_timeless_long,
+      midBin(bin) > upperBinBorder(q95) | midBin(bin) < lowerBinBorder(q05),
       count != 0
     ),
     aes(
@@ -293,20 +281,20 @@ ggplot(
   )
 
 ### Behaviour of plots over time
-# proFileData_long <- proFileData %>%
+# proFileDataRelative_long <- proFileDataRelative %>%
 #   gather(key = bin, value = count, ends_with(" ns"))
 
-proFileData$eventCount <- proFileData %>%
+proFileDataRelative$eventCount <- proFileDataRelative %>%
   select(ends_with(" ns")) %>%
   rowSums
 
-proFileData$slowest <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 1))
-proFileData$slowest <- factor(proFileData$slowest, levels = binFactorLevels)
+proFileDataRelative$slowest <- by(proFileDataRelative, 1:nrow(proFileDataRelative), Curry(hist_quantile_bin, quantile = 1))
+proFileDataRelative$slowest <- factor(proFileDataRelative$slowest, levels = binFactorLevels)
 
-proFileData$q95 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.95))
-proFileData$q95 <- factor(proFileData$q95, levels = binFactorLevels)
+proFileDataRelative$q95 <- by(proFileDataRelative, 1:nrow(proFileDataRelative), Curry(hist_quantile_bin, quantile = 0.95))
+proFileDataRelative$q95 <- factor(proFileDataRelative$q95, levels = binFactorLevels)
 
-undominatedRanks <- proFileData %>%
+undominatedRanks <- proFileDataRelative %>%
   filter(timer == "Work") %>%
   group_by(dataset, secondsPassed) %>%
   arrange() %>%
@@ -317,7 +305,7 @@ undominatedRanks <- proFileData %>%
 undominatedRanks <-
   left_join(
     undominatedRanks,
-    filter(proFileData, timer == "Work"),
+    filter(proFileDataRelative, timer == "Work"),
     by = c("dataset", "secondsPassed", "rank")
   ) %>%
   select(dataset, rank) %>%
@@ -330,14 +318,14 @@ getUndominatedRanks <- function(ds) {
 undominatedRanks_list = map(unique(undominatedRanks$dataset), getUndominatedRanks)
 names(undominatedRanks_list) = unique(undominatedRanks$dataset)
 
-proFileData$color = map2_int(proFileData$rank, proFileData$dataset, function(rank, dataset) {
+proFileDataRelative$color = map2_int(proFileDataRelative$rank, proFileDataRelative$dataset, function(rank, dataset) {
   #return(rank %in% undominatedRanks_list[[dataset]])
   match(rank, undominatedRanks_list[[dataset]]) # Will be NA if not found
 })
 
 # Bar chart difference slowest, fastest
 ggplot(
-    data = filter(proFileData, !is.na(color))
+    data = filter(proFileDataRelative, !is.na(color))
   ) +
   geom_col(aes(x = as.factor(secondsPassed), y = midBin(slowest), fill = as.factor(color)), position = position_dodge()) +
   scale_fill_brewer(palette = "Dark2") +
@@ -367,12 +355,12 @@ ggplot(
 # Slowest rank over time
 datasetLabelsOneLine = map_chr(datasetLabels, function(s) { str_replace(s, "\n", " ")})
 
-slowestData <- filter(proFileData, !is.na(color)) %>%
+slowestData <- filter(proFileDataRelative, !is.na(color)) %>%
   group_by(secondsPassed, dataset) %>%
   summarise(slowest = max(midBin(slowest)))
   
 ggplot(data = slowestData) +
-  geom_line(aes(x = secondsPassed, y = slowest)) +
+  geom_point(aes(x = secondsPassed, y = slowest)) +
   facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabelsOneLine), ncol = 1) +
   scale_y_continuous(
     labels = yLabelGenerator
@@ -407,7 +395,7 @@ readFileAbsolute <- function(flnm) {
 }
 
 # Load all profiling data from multiple runs and aggregate it into `data`
-proFileData <-
+proFileDataAbsolute <-
   list.files(
     path = csvDirAbsolute,  
     pattern = "*.csv", 
@@ -417,48 +405,48 @@ proFileData <-
   mutate(timer = factor(timer)) %>%
   mutate(dataset = factor(dataset))
 
-proFileData$eventCount <- proFileData %>%
+proFileDataAbsolute$eventCount <- proFileDataAbsolute %>%
   select(-rank, -processor, -timer, -dataset) %>%
   rowSums
 
-proFileData$medianBin <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.5))
-proFileData$medianBin <- factor(proFileData$medianBin, levels = binFactorLevels)
-proFileData$q00 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.00))
-proFileData$q05 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.05))
-proFileData$q25 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.25))
-proFileData$q75 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.75))
-proFileData$q95 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 0.95))
-proFileData$q100 <- by(proFileData, 1:nrow(proFileData), Curry(hist_quantile_bin, quantile = 1.00))
+proFileDataAbsolute$medianBin <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.5))
+proFileDataAbsolute$medianBin <- factor(proFileDataAbsolute$medianBin, levels = binFactorLevels)
+proFileDataAbsolute$q00 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.00))
+proFileDataAbsolute$q05 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.05))
+proFileDataAbsolute$q25 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.25))
+proFileDataAbsolute$q75 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.75))
+proFileDataAbsolute$q95 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.95))
+proFileDataAbsolute$q100 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 1.00))
 
 ### Plotting ###
 
-datasetLabels <- unique(proFileData$dataset)
+datasetLabels <- unique(proFileDataAbsolute$dataset)
 names(datasetLabels) <- datasetLabels
 datasetLabels <- map_chr(datasetLabels, dataset2Label)
 
-datasets <- unique(proFileData$dataset)
+datasets <- unique(proFileDataAbsolute$dataset)
 maxRanks <- map_int(datasets, function(ds) {
-  max(filter(proFileData, dataset == ds)$rank)
+  max(filter(proFileDataAbsolute, dataset == ds)$rank)
 })
 names(maxRanks) <- datasets
 
 ggplot() +
   geom_linerange(
-    data = filter(proFileData, timer == "MPI_Allreduce"),
+    data = filter(proFileDataAbsolute, timer == "MPI_Allreduce"),
     mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
-    data = filter(proFileData, timer == "Work"),
+    data = filter(proFileDataAbsolute, timer == "Work"),
     mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
-    data = filter(proFileData, timer == "MPI_Allreduce"),
+    data = filter(proFileDataAbsolute, timer == "MPI_Allreduce"),
     mapping = aes(y = midBin(medianBin), x = rank),
     color = "black",
     size = 0.5
   ) +
   geom_point(
-    data = filter(proFileData, timer == "Work"),
+    data = filter(proFileDataAbsolute, timer == "Work"),
     mapping = aes(y = midBin(medianBin), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1),
     color = "black",
     size = 0.5
@@ -493,7 +481,7 @@ ggplot() +
 csvDirDifferentMPI <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/differentMpiIImplementations"
 
 # load profiling data from single csv file and add `dataset` column
-readFile <- function(flnm) {
+readFileDiffMPI <- function(flnm) {
   read_csv(flnm, col_types = "icciiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii") %>%
     mutate(dataset = str_extract(basename(flnm), "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}")) %>%
     mutate(mpi = str_extract(basename(flnm), "^([:alnum:]|\\.)+"))
@@ -505,7 +493,7 @@ proFileData_diffMPI <-
     path = csvDirDifferentMPI,  
     pattern = "*.proFile.csv", 
     full.names = T) %>% 
-  map_df(~readFile(.)) %>%
+  map_df(~readFileDiffMPI(.)) %>%
   as_tibble() %>%
   mutate(timer = factor(timer)) %>%
   mutate(dataset = factor(dataset))
