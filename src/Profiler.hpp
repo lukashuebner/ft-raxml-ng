@@ -3,22 +3,23 @@
 
 using namespace std;
 
-class LogBinningProfiler {
+class FractionalProfiler {
     public:
-        class LogarithmicHistogram {
+        class FractionalHistogram {
             private:
                 shared_ptr<vector<uint64_t>> bins;
-                int16_t log2i(uint64_t n);
+                int16_t getBin(float n);
 
             public:
-                explicit LogarithmicHistogram();
-                void event(uint64_t number);
+                explicit FractionalHistogram();
+                void event(float number);
                 uint64_t& operator[](size_t idx);
                 const uint64_t& operator[](size_t idx) const;
                 const shared_ptr<vector<uint64_t>> data() const;
                 operator std::string();
                 uint64_t numEvents() const;
-                static const uint16_t numBins = 65;
+                static const uint16_t numBins = 201;
+                static const string binName(uint16_t bin);
         };
 
     private:
@@ -33,8 +34,8 @@ class LogBinningProfiler {
         uint64_t timesCalled() const;
 
     public:
-        shared_ptr<LogarithmicHistogram> eventCounter = make_shared<LogarithmicHistogram>();
-        explicit LogBinningProfiler(string name);
+        shared_ptr<FractionalHistogram> eventCounter = make_shared<FractionalHistogram>();
+        explicit FractionalProfiler(string name);
         void startTimer(bool resume = false);
         bool isRunning() const;
         void endTimer();
@@ -43,7 +44,7 @@ class LogBinningProfiler {
         void discardTimer();
         uint64_t getTimer() const;
         void saveTimer(uint64_t min);
-        shared_ptr<LogarithmicHistogram> getHistogram() const;
+        shared_ptr<FractionalHistogram> getHistogram() const;
         const string getName() const; 
         static unique_ptr<ostream> writeStatsHeader(unique_ptr<ostream> file);
         static unique_ptr<ostream> writeStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
@@ -52,14 +53,14 @@ class LogBinningProfiler {
         static unique_ptr<ostream> writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file);
         float eventsPerSecond() const;
         float secondsPassed() const;
-        ~LogBinningProfiler();
+        ~FractionalProfiler();
 };
 
 class ProfilerRegister {
     private:
         unique_ptr<ostream> proFile = nullptr;
         unique_ptr<ostream> callsPerSecondFile = nullptr;
-        shared_ptr<map<string, shared_ptr<LogBinningProfiler>>> profilers = nullptr;
+        shared_ptr<map<string, shared_ptr<FractionalProfiler>>> profilers = nullptr;
         void createProFile(string path);
         
         ProfilerRegister(string logFile);
@@ -70,7 +71,7 @@ class ProfilerRegister {
         static shared_ptr<ProfilerRegister> createInstance(string logFile);
         ProfilerRegister() = delete;
 
-        shared_ptr<LogBinningProfiler> registerProfiler(string name);
-        shared_ptr<LogBinningProfiler> getProfiler(string name) const;
+        shared_ptr<FractionalProfiler> registerProfiler(string name);
+        shared_ptr<FractionalProfiler> getProfiler(string name) const;
         void saveProfilingData(bool master, size_t num_ranks, string (*rankToProcessorName) (size_t), MPI_Comm comm);
 };

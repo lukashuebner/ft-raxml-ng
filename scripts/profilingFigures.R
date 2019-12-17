@@ -415,6 +415,20 @@ proFileDataAbsolute$q75 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), 
 proFileDataAbsolute$q95 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.95))
 proFileDataAbsolute$q100 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 1.00))
 
+
+# How many of the difference-to-fastest measurements were above the worst absolute-time measurement?
+absoluteWorstTiming <- proFileDataAbsolute %>% select(rank, timer, dataset, q100) %>% rename(absoluteWorst = q100)
+relatativeWorstTiming <- proFileDataRelative_timeless %>% select(rank, timer, dataset, q100) %>% rename(relativeWorst = q100)
+worstTiming <- inner_join(absoluteWorstTiming, relatativeWorstTiming, by = c("rank", "timer", "dataset")) %>% filter(midBin(relativeWorst) > midBin(absoluteWorst))
+left_join(worstTiming, proFileDataRelative_timeless, by = c("rank", "timer", "dataset")) %>%
+  select(-q00, -q05, -q25, -q75, -q95, -q100, -medianBin) %>%
+  gather(key = "bin", value = "count", ends_with(" ns")) %>%
+  filter(midBin(bin) > midBin(absoluteWorst)) %>%
+  group_by(timer, dataset, eventCount) %>%
+  summarise(worseThanWorstCnt = sum(count)) %>%
+  mutate(worseThanWorstFreq = worseThanWorstCnt / eventCount)
+  
+  
 ### Plotting ###
 
 datasetLabels <- unique(proFileDataAbsolute$dataset)
@@ -472,7 +486,7 @@ ggplot() +
   )
 
 ### Different MPI Implementations ###
-csvDirDifferentMPI <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/differentMpiIImplementations"
+csvDirDifferentMPI <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/differentMpiImplementations"
 
 # load profiling data from single csv file and add `dataset` column
 readFileDiffMPI <- function(flnm) {
@@ -516,7 +530,6 @@ proFileData_diffMPI_timeless$q25 <- by(proFileData_diffMPI_timeless, 1:nrow(proF
 proFileData_diffMPI_timeless$q75 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.75))
 proFileData_diffMPI_timeless$q95 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.95))
 proFileData_diffMPI_timeless$q100 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 1.0))
-
 
 ggplot() +
   geom_linerange(

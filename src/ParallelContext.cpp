@@ -560,16 +560,16 @@ void ParallelContext::parallel_reduce(double * data, size_t size, int op)
 
 void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t size, int op)
 {
-  uint64_t minTime[2];
+  uint64_t avgTime[2];
   const uint8_t MPI_ALLREDUCE = 0;
   const uint8_t WORK = 1;
   bool workTimerRan;
   if (workTimer->isRunning()) {
     workTimer->endTimer();
-    minTime[WORK] = workTimer->getTimer();
+    avgTime[WORK] = workTimer->getTimer();
     workTimerRan = true;
   } else {
-    minTime[WORK] = 0;
+    avgTime[WORK] = 0;
     workTimerRan = false;
   }
   assert(!allreduceTimer->isRunning());
@@ -579,14 +579,17 @@ void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t s
   allreduceTimer->startTimer();
   ParallelContext::parallel_reduce(data, size, op);
   allreduceTimer->endTimer();
-  minTime[MPI_ALLREDUCE] = allreduceTimer->getTimer();
+  avgTime[MPI_ALLREDUCE] = allreduceTimer->getTimer();
 
   // Collect how long each rank took to do Work and parallel_reduce
-  MPI_Allreduce(MPI_IN_PLACE, &minTime, 2, MPI_UINT64_T, MPI_MIN, _comm);
+  MPI_Allreduce(MPI_IN_PLACE, &avgTime, 2, MPI_UINT64_T, MPI_SUM, _comm);
+  avgTime[MPI_ALLREDUCE] /= num_ranks();
+  avgTime[WORK] /= num_ranks();
+
   if (workTimerRan) {
-    workTimer->saveTimer(minTime[WORK]);
+    workTimer->saveTimer(avgTime[WORK]);
   }
-  allreduceTimer->saveTimer(minTime[MPI_ALLREDUCE]);
+  allreduceTimer->saveTimer(avgTime[MPI_ALLREDUCE]);
 
   workTimer->startTimer();
   RAXML_UNUSED(context);

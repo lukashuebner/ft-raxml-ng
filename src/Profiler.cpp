@@ -9,20 +9,20 @@
 #include <cmath>
 #include <iomanip>
 #include <mpi.h>
+#include <sstream>
 
 #include "Profiler.hpp"
 
 using namespace std;
 
-LogBinningProfiler::LogarithmicHistogram::LogarithmicHistogram() {
+FractionalProfiler::FractionalHistogram::FractionalHistogram() {
     bins = std::make_shared<vector<uint64_t>>(numBins, 0);
 }
 
-void LogBinningProfiler::LogarithmicHistogram::event(uint64_t number) {
+void FractionalProfiler::FractionalHistogram::event(float frac) {
     assert(bins != nullptr);
 
-    int16_t bin = log2i(number); // Returns -1 if number == 0
-    bin++; // Shift bins by one to be able to save 0
+    int16_t bin = getBin(frac);
     assert(bin >= 0);
     assert(bin < numBins);
     assert(numBins == bins->size());
@@ -30,30 +30,48 @@ void LogBinningProfiler::LogarithmicHistogram::event(uint64_t number) {
     (*bins)[bin]++;
 }
 
-uint64_t& LogBinningProfiler::LogarithmicHistogram::operator[](size_t idx) {
+uint64_t& FractionalProfiler::FractionalHistogram::operator[](size_t idx) {
     return (*bins)[idx];
 } 
 
-const uint64_t& LogBinningProfiler::LogarithmicHistogram::operator[](size_t idx) const {
+const uint64_t& FractionalProfiler::FractionalHistogram::operator[](size_t idx) const {
     return (*bins)[idx];
 }
 
-int16_t LogBinningProfiler::LogarithmicHistogram::log2i(uint64_t n) {
-    if (n == 0) {
-        return -1;
+int16_t FractionalProfiler::FractionalHistogram::getBin(const float frac) {
+    // Memory layout
+    // bins [0..99]:    1/frac \in (1.001..1.1), 1/frac \in [1.1..1.2), ..., 1/frac \in [10.0..inf)
+    // bin  100:        0.999..1.001
+    // bins [101..200]: frac \in (1.001..1.1), frac \in [1.1..1.2), ..., frac \in [10.0..inf)
+    assert(frac > 0);
+    int16_t bin;
+    if (abs(frac - 1) < 0.001) {
+        bin = 100;
+    } else if (frac > 1) {
+        if (frac >= 10) {
+            bin = 200;
+        } else {
+            assert(frac > 1 && frac < 10);
+            bin = (int16_t) ((frac - 1) * 10) + 101;
+        }
+    } else { // frac < 1
+        const float oneOverFrac = 1.0 / frac;
+        assert(oneOverFrac > 1);
+        if (oneOverFrac >= 10) {
+            bin = 99;
+        } else {
+            assert(oneOverFrac < 10);
+            bin = (int16_t) ((oneOverFrac - 1) * 10); 
+        }
     }
-
-    uint8_t msb = 0;
-    while (n >>= 1) {
-        msb++;
-    }    
-
-    return msb;
+    assert(bin >= 0 && bin < FractionalHistogram::numBins);
+    assert(frac > 1 ? bin >= 100 : bin <= 100);
+    return bin;
 }
 
-LogBinningProfiler::LogBinningProfiler(string name) : name(name) {}
+FractionalProfiler::FractionalProfiler(string name) : name(name) {}
 
-void LogBinningProfiler::startTimer(bool resume) {
+void FractionalProfiler::startTimer(bool resume) {
     if (!resume && running) {
         invalid = true;
         throw runtime_error("The timer is already running.");
@@ -79,7 +97,7 @@ void LogBinningProfiler::startTimer(bool resume) {
     }
 }
 
-void LogBinningProfiler::endTimer() {
+void FractionalProfiler::endTimer() {
     // We can stop the timing now, as the timer will be left in an invalid state if something goes wrong.
     // The value in stop will then no longer be valid.
     end = chrono::high_resolution_clock::now();
@@ -100,7 +118,7 @@ void LogBinningProfiler::endTimer() {
     nsPassed += (uint64_t) timeDiff;
 }
 
-uint64_t LogBinningProfiler::getTimer() const {
+uint64_t FractionalProfiler::getTimer() const {
     if (invalid) {
         throw runtime_error("Trying to get an invalid timer.");
     }
@@ -108,8 +126,10 @@ uint64_t LogBinningProfiler::getTimer() const {
     return nsPassed;
 }
 
-void LogBinningProfiler::saveTimer(uint64_t min) {
-    if (invalid) {
+void FractionalProfiler::saveTimer(uint64_t nsMean) {
+    if (nsMean == 0) {
+        throw runtime_error("An average runtime of 0 ns is a little fast, don't you think?");
+    } else if (invalid) {
         throw runtime_error("Trying to save an invalid timer.");
     } else if (running) {
         invalid = true;
@@ -119,12 +139,11 @@ void LogBinningProfiler::saveTimer(uint64_t min) {
         throw  runtime_error("Timer was already saved (or never ran). Please (re)start if first.");
     }
 
-    assert(nsPassed >= min);
     savedOrDiscarded = true;
-    eventCounter->event(nsPassed - min);
+    eventCounter->event((double)nsPassed / nsMean);
 }
 
-void LogBinningProfiler::discardTimer() {
+void FractionalProfiler::discardTimer() {
     if (invalid) {
         throw runtime_error("Invalid timers can't even be discarded, sorry.");
     } if (running) {
@@ -139,7 +158,7 @@ void LogBinningProfiler::discardTimer() {
     nsPassed = 0;
 }
 
-void LogBinningProfiler::abortTimer() {
+void FractionalProfiler::abortTimer() {
     if (invalid) {
         throw runtime_error("Trying to abort invalid timer");
     } else if (!running) {
@@ -152,18 +171,18 @@ void LogBinningProfiler::abortTimer() {
     // start will be overwritten once the timer starts again
 }
 
-LogBinningProfiler::~LogBinningProfiler() {
+FractionalProfiler::~FractionalProfiler() {
     if (!invalid) {
         assert(!running);
         assert(savedOrDiscarded);
     }
 }
 
-void LogBinningProfiler::resumeTimer() {
+void FractionalProfiler::resumeTimer() {
     startTimer(true);
 }
 
-shared_ptr<LogBinningProfiler::LogarithmicHistogram> LogBinningProfiler::getHistogram() const {
+shared_ptr<FractionalProfiler::FractionalHistogram> FractionalProfiler::getHistogram() const {
     if (invalid) {
         throw runtime_error("Trying to get histogram of invalid timer");
     }
@@ -171,11 +190,11 @@ shared_ptr<LogBinningProfiler::LogarithmicHistogram> LogBinningProfiler::getHist
     return eventCounter;
 }
 
-const string LogBinningProfiler::getName() const {
+const string FractionalProfiler::getName() const {
     return this->name;
 }
 
-LogBinningProfiler::LogarithmicHistogram::operator std::string () {
+FractionalProfiler::FractionalHistogram::operator std::string () {
     string str = "";
     for (int i = 0; i < numBins; i++) {
         str += to_string((*bins)[i]);
@@ -186,39 +205,27 @@ LogBinningProfiler::LogarithmicHistogram::operator std::string () {
     return str;
 }
 
-uint64_t LogBinningProfiler::LogarithmicHistogram::numEvents() const {
+uint64_t FractionalProfiler::FractionalHistogram::numEvents() const {
     assert(bins != nullptr);
     assert(bins->size() == numBins);
     return accumulate(bins->begin(), bins->end(), 0);
 }
 
-const shared_ptr<vector<uint64_t>> LogBinningProfiler::LogarithmicHistogram::data() const {
+const shared_ptr<vector<uint64_t>> FractionalProfiler::FractionalHistogram::data() const {
     assert(bins != nullptr);
     return bins;
 }
 
-unique_ptr<ostream> LogBinningProfiler::writeStatsHeader(unique_ptr<ostream> file) {
+unique_ptr<ostream> FractionalProfiler::writeStatsHeader(unique_ptr<ostream> file) {
     if (file == nullptr) {
         throw runtime_error("I will not write to a nullptr.");
     }
 
-    *file << "rank,processor,timer,secondsPassed,0 ns,";
-    for (int bit = 0; bit < LogarithmicHistogram::numBins - 1; bit++) {
-        *file << "\"[2^";
-        *file << setfill('0') << setw(2) << bit;
-        *file << ",2^";
-        *file << setfill('0') << setw(2) << bit + 1;
-        *file << ") ns\"";
-        if (bit != LogarithmicHistogram::numBins - 2) {
-            *file << ",";
-        } else {
-            *file << endl;
-        }
-    }
+    *file << "rank,processor,timer,secondsPassed,bin,count" << endl;
     return file;
 }
 
-unique_ptr<ostream> LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
+unique_ptr<ostream> FractionalProfiler::writeStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
                                                    string (*rankToProcessorName) (size_t), int secondsPassed) {
     if (data == nullptr || file == nullptr) {
         throw runtime_error("nullptr as data or file");
@@ -228,29 +235,26 @@ unique_ptr<ostream> LogBinningProfiler::writeStats(shared_ptr<vector<uint64_t>> 
     } 
 
     // Output data
-    for (size_t rank = 0; rank < data->size() / LogarithmicHistogram::numBins; rank++) {
-        *file << to_string(rank) + "," + (*rankToProcessorName)(rank) + "," + timerName + "," + to_string(secondsPassed) + ",";
-        for (int timing = 0; timing < LogarithmicHistogram::numBins; timing++) {
-            *file << (*data)[rank * LogarithmicHistogram::numBins + timing];
-            if (timing != LogarithmicHistogram::numBins - 1) {
-                *file << ",";
-            } else {
-                *file << endl;
-            }
+    for (size_t rank = 0; rank < data->size() / FractionalHistogram::numBins; rank++) {
+        for (uint16_t bin = 0; bin < FractionalHistogram::numBins; bin++) {
+            *file << to_string(rank) << "," << (*rankToProcessorName)(rank) << "," << timerName << ","<< to_string(secondsPassed) << ",";
+            *file << FractionalHistogram::binName(bin) << ",";
+            *file << (*data)[rank * FractionalHistogram::numBins + bin];
+            *file << endl;
         } 
     }
 
     return file;
 }
 
-uint64_t LogBinningProfiler::timesCalled() const {
+uint64_t FractionalProfiler::timesCalled() const {
     if (invalid) {
         throw runtime_error("Trying to get event count on invalid timer.");
     }
     return eventCounter->numEvents();
 }
 
-float LogBinningProfiler::eventsPerSecond() const {
+float FractionalProfiler::eventsPerSecond() const {
     if (invalid) {
         throw runtime_error("Trying to get event frequency on invalid timer.");
     }
@@ -258,14 +262,14 @@ float LogBinningProfiler::eventsPerSecond() const {
 }
 
 
-bool LogBinningProfiler::isRunning() const {
+bool FractionalProfiler::isRunning() const {
     if (invalid) {
         throw runtime_error("Timer is in invalid state.");
     }
     return running;
 }
 
-float LogBinningProfiler::secondsPassed() const {
+float FractionalProfiler::secondsPassed() const {
     if (invalid) {
         throw runtime_error("Trying to get passed time on invalid timer.");
     }
@@ -274,7 +278,7 @@ float LogBinningProfiler::secondsPassed() const {
 
 ProfilerRegister::ProfilerRegister(string prefix) {
     createProFile(prefix);
-    profilers = make_shared<map<string, shared_ptr<LogBinningProfiler>>>();
+    profilers = make_shared<map<string, shared_ptr<FractionalProfiler>>>();
 }
 
 void ProfilerRegister::createProFile(string prefix) {
@@ -284,27 +288,27 @@ void ProfilerRegister::createProFile(string prefix) {
 
     // ProFile
     ofstream* file = new ofstream();
-    file->open(prefix + "_proFile.csv");
+    file->open(prefix + ".proFile.csv");
     proFile = unique_ptr<ostream>(file);
-    proFile = LogBinningProfiler::writeStatsHeader(move(proFile));
+    proFile = FractionalProfiler::writeStatsHeader(move(proFile));
 
     // Calls per second file
     file = new ofstream();
-    file->open(prefix + "_callsPerSecond.csv");
+    file->open(prefix + ".callsPerSecond.csv");
     callsPerSecondFile = unique_ptr<ostream>(file);
-    callsPerSecondFile = LogBinningProfiler::writeCallsPerSecondsHeader(move(callsPerSecondFile));
+    callsPerSecondFile = FractionalProfiler::writeCallsPerSecondsHeader(move(callsPerSecondFile));
 }
 
-shared_ptr<LogBinningProfiler> ProfilerRegister::registerProfiler(string name) {
+shared_ptr<FractionalProfiler> ProfilerRegister::registerProfiler(string name) {
     if (profilers->find(name) != profilers->end()) {
         throw runtime_error("A profiler with this name already exists.");
     }
     // This would not throw an exception if a profiler with this name would already exist.
-    (*profilers)[name] = make_shared<LogBinningProfiler>(name);
+    (*profilers)[name] = make_shared<FractionalProfiler>(name);
     return (*profilers)[name];
 }
 
-shared_ptr<LogBinningProfiler> ProfilerRegister::getProfiler(string name) const {
+shared_ptr<FractionalProfiler> ProfilerRegister::getProfiler(string name) const {
     // Will throw an exception if the profiler is non-existent
     return profilers->at(name);
 }
@@ -340,11 +344,11 @@ void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (
         if (master) {
             auto allTimingsVec = make_shared<vector<uint64_t>>(num_ranks * timings->size());
             MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
-                    allTimingsVec->data(), LogBinningProfiler::LogarithmicHistogram::numBins, MPI_UINT64_T,
+                    allTimingsVec->data(), FractionalProfiler::FractionalHistogram::numBins, MPI_UINT64_T,
                     0, comm);
 
-            proFile = LogBinningProfiler::writeStats(allTimingsVec, move(proFile), timer->getName(), rankToProcessorName, secondsPassed);
-            callsPerSecondFile = LogBinningProfiler::writeCallsPerSecondsStats(timer->getName(), secondsPassed, timer->eventsPerSecond(), move(callsPerSecondFile));
+            proFile = FractionalProfiler::writeStats(allTimingsVec, move(proFile), timer->getName(), rankToProcessorName, secondsPassed);
+            callsPerSecondFile = FractionalProfiler::writeCallsPerSecondsStats(timer->getName(), secondsPassed, timer->eventsPerSecond(), move(callsPerSecondFile));
         } else {
             MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
                     nullptr, 0, MPI_UINT64_T, 0, comm);
@@ -352,7 +356,7 @@ void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (
     }
 }
 
-unique_ptr<ostream> LogBinningProfiler::writeCallsPerSecondsHeader(unique_ptr<ostream> file) {
+unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsHeader(unique_ptr<ostream> file) {
     if (file == nullptr) {
         throw runtime_error("Stream ptr should not be a nullptr");
     }
@@ -361,7 +365,7 @@ unique_ptr<ostream> LogBinningProfiler::writeCallsPerSecondsHeader(unique_ptr<os
     return file;
 }
 
-unique_ptr<ostream> LogBinningProfiler::writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file) {
+unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file) {
     if (file == nullptr) {
         throw runtime_error("Ouput stream pointer is nullptr");
     } else if (secondsPassed < 0) {
@@ -372,4 +376,27 @@ unique_ptr<ostream> LogBinningProfiler::writeCallsPerSecondsStats(string timer, 
     *file << timer << "," << to_string(secondsPassed) << "," << to_string(callsPerSecond) << endl;
 
     return file;
+}
+
+const string FractionalProfiler::FractionalHistogram::binName(uint16_t bin) {
+    auto to_string_with_precision = [](const float value, const int n = 3) {
+        std::ostringstream out;
+        out.precision(n);
+        out << std::fixed << value;
+        return out.str();
+    };
+
+    // See getBin() for memory layout
+    if (bin < 100) {
+        float oneOverFrac = (float)bin / 10 + 1;
+        float to = 1 / oneOverFrac;
+        float from = 1 / (oneOverFrac + 0.1);
+        return to_string_with_precision(from) + " to " + to_string_with_precision(to);
+    } else if (bin == 100) {
+        return "0.999 to 1.001";
+    } else {
+        float from = ((float)bin - 101) / 10 + 1;
+        float to = from + 0.1;
+        return to_string_with_precision(from) + " to " + to_string_with_precision(to);
+    } 
 }
