@@ -510,17 +510,22 @@ proFileData_diffMPI_timeless$eventCount <- proFileData_diffMPI_timeless %>%
 
 proFileData_diffMPI_timeless$medianBin <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.5))
 proFileData_diffMPI_timeless$medianBin <- factor(proFileData_diffMPI_timeless$medianBin, levels = binFactorLevels)
+proFileData_diffMPI_timeless$q00 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.00))
 proFileData_diffMPI_timeless$q05 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.05))
+proFileData_diffMPI_timeless$q25 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.25))
+proFileData_diffMPI_timeless$q75 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.75))
 proFileData_diffMPI_timeless$q95 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 0.95))
+proFileData_diffMPI_timeless$q100 <- by(proFileData_diffMPI_timeless, 1:nrow(proFileData_diffMPI_timeless), Curry(hist_quantile_bin, quantile = 1.0))
+
 
 ggplot() +
   geom_linerange(
     data = filter(proFileData_diffMPI_timeless, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileData_diffMPI_timeless, timer == "Work"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileData_diffMPI_timeless, timer == "MPI_Allreduce"),
@@ -534,7 +539,7 @@ ggplot() +
     color = "black",
     size = 0.5
   ) +
-  facet_grid(vars(mpi), vars(dataset), scale = "free", labeller = labeller(dataset = datasetLabels)) +
+  facet_grid(vars(mpi), vars(dataset), scale = "free_x", labeller = labeller(dataset = datasetLabels)) +
   #scale_y_discrete(
   #  limits = binFactorRange(union(proFileData_timeless$q95, proFileData_timeless$q05))
   #) +
@@ -556,6 +561,6 @@ ggplot() +
   guides(color = FALSE) +
   labs(
     x = "rank",
-    y = "0.05 to 0.95 quantiles of time difference to fastest rank",
+    y = "range of time difference to fastest rank",
     colour = "Code Segment"
   )
