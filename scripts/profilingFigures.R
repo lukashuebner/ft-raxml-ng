@@ -379,8 +379,8 @@ ggplot(data = slowestData) +
     x = "runtime",
     y = "time difference of slowest and fastest rank"
   )
-ggsave(filename = "/slowest_over_time_small.svg", device = "svg", path = "~", 
-       height = 6.86, width = 12.2, units = "in", dpi = 200)
+#ggsave(filename = "/slowest_over_time_small.svg", device = "svg", path = "~", 
+#       height = 6.86, width = 12.2, units = "in", dpi = 200)
 
 ### Absolute plots
 csvDirAbsolute <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/absolute"
