@@ -216,7 +216,7 @@ const shared_ptr<vector<uint64_t>> FractionalProfiler::FractionalHistogram::data
     return bins;
 }
 
-unique_ptr<ostream> FractionalProfiler::writeStatsHeader(unique_ptr<ostream> file) {
+unique_ptr<ostream> FractionalProfiler::writeTimingsHeader(unique_ptr<ostream> file) {
     if (file == nullptr) {
         throw runtime_error("I will not write to a nullptr.");
     }
@@ -225,7 +225,7 @@ unique_ptr<ostream> FractionalProfiler::writeStatsHeader(unique_ptr<ostream> fil
     return file;
 }
 
-unique_ptr<ostream> FractionalProfiler::writeStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
+unique_ptr<ostream> FractionalProfiler::writeTimingsStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
                                                    string (*rankToProcessorName) (size_t), int secondsPassed) {
     if (data == nullptr || file == nullptr) {
         throw runtime_error("nullptr as data or file");
@@ -279,6 +279,10 @@ float FractionalProfiler::secondsPassed() const {
 ProfilerRegister::ProfilerRegister(string prefix) {
     createProFile(prefix);
     profilers = make_shared<map<string, shared_ptr<FractionalProfiler>>>();
+    stats = make_shared<ProfilerStats>();
+
+    assert(profilers != nullptr);
+    assert(stats != nullptr);
 }
 
 void ProfilerRegister::createProFile(string prefix) {
@@ -290,13 +294,17 @@ void ProfilerRegister::createProFile(string prefix) {
     ofstream* file = new ofstream();
     file->open(prefix + ".proFile.csv");
     proFile = unique_ptr<ostream>(file);
-    proFile = FractionalProfiler::writeStatsHeader(move(proFile));
+    proFile = FractionalProfiler::writeTimingsHeader(move(proFile));
 
     // Calls per second file
     file = new ofstream();
     file->open(prefix + ".callsPerSecond.csv");
     callsPerSecondFile = unique_ptr<ostream>(file);
     callsPerSecondFile = FractionalProfiler::writeCallsPerSecondsHeader(move(callsPerSecondFile));
+
+    // Overall statistics file
+    // Here, only the filename is computed, the file is reopened (and truncated) on every write.
+    overallStatsFilename = prefix + ".overallStats.csv";
 }
 
 shared_ptr<FractionalProfiler> ProfilerRegister::registerProfiler(string name) {
@@ -334,25 +342,54 @@ void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (
     // Save the time passed once so it will be the same for all measurements collected during one call to this function
     int secondsPassed = profilers->begin()->second->secondsPassed();
 
+    // First, gather the profiling data for all timers
     // Iterating over a std::map is actually sorted by key -> We will always collect the correct timing data
     for (auto timerPair: *profilers) {
         auto timer = timerPair.second;
         if (timer->isRunning()) {
             throw runtime_error("Trying to save profiling data while timer " + timer->getName() + " is still running!");
         }
+
+        // Get timer histogram
         shared_ptr<vector<uint64_t>> timings = timer->getHistogram()->data();
+        
+        // Gather data from all ranks and save to file
         if (master) {
             auto allTimingsVec = make_shared<vector<uint64_t>>(num_ranks * timings->size());
             MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
                     allTimingsVec->data(), FractionalProfiler::FractionalHistogram::numBins, MPI_UINT64_T,
                     0, comm);
 
-            proFile = FractionalProfiler::writeStats(allTimingsVec, move(proFile), timer->getName(), rankToProcessorName, secondsPassed);
+            proFile = FractionalProfiler::writeTimingsStats(allTimingsVec, move(proFile), timer->getName(), rankToProcessorName, secondsPassed);
             callsPerSecondFile = FractionalProfiler::writeCallsPerSecondsStats(timer->getName(), secondsPassed, timer->eventsPerSecond(), move(callsPerSecondFile));
         } else {
             MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
                     nullptr, 0, MPI_UINT64_T, 0, comm);
         }
+    }
+
+    // Second, gather all profiler stats
+    // Arrange profiler stats data
+    auto profilerStats = ProfilerRegister::getInstance()->getStats();
+    vector<uint64_t> statsVec = {
+        profilerStats->nsSumInsideMPI,
+        profilerStats->nsSumOutsideMPI,
+        profilerStats->nsSumWait,
+        profilerStats->nsSumWork,
+        profilerStats->numIterations,
+        profilerStats->timesIWasSlowest
+    };
+
+    if (master) {
+        auto allStatsVec = make_shared<vector<uint64_t>>(num_ranks * statsVec.size());
+        MPI_Gather(statsVec.data(), statsVec.size(), MPI_UINT64_T,
+            allStatsVec->data(), statsVec.size(), MPI_UINT64_T, 0, comm);
+
+        ofstream* overallStatsFile = new ofstream(overallStatsFilename, ofstream::out | ofstream::trunc);
+        FractionalProfiler::writeOverallStats(allStatsVec, rankToProcessorName, move(unique_ptr<ostream>(overallStatsFile)));
+    } else {
+        MPI_Gather(statsVec.data(), statsVec.size(), MPI_UINT64_T,
+                nullptr, 0, MPI_UINT64_T, 0, comm);
     }
 }
 
@@ -378,6 +415,27 @@ unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsStats(string timer, 
     return file;
 }
 
+unique_ptr<ostream> FractionalProfiler::writeOverallStats(shared_ptr<vector<uint64_t>> allStatsVec, string (*rankToProcessorName) (size_t), unique_ptr<ostream> file) {
+    assert(allStatsVec->size() % 6 == 0);
+    size_t numRanks = allStatsVec->size() / 6;
+    // See saveProfilingData(...) for order of fields
+    *file << "rank,processor,nsSumInsideMPI,nsSumOutsideMPI,nsSumWait,nsSumWork,numIterations,timesIWasSlowest" << endl;
+    for (size_t rank = 0; rank < numRanks; rank++) {
+        size_t base = rank * 6;
+        *file << rank << ",";
+        *file << (*rankToProcessorName)(rank) << ",";
+        for (uint8_t i = 0; i < 6; i++) {
+            *file << to_string((*allStatsVec)[base + i]);
+            if (i != 5) {
+                *file << ",";
+            }
+        }
+        *file << endl;
+    }
+
+    return file;
+}
+
 const string FractionalProfiler::FractionalHistogram::binName(uint16_t bin) {
     auto to_string_with_precision = [](const float value, const int n = 3) {
         std::ostringstream out;
@@ -399,4 +457,9 @@ const string FractionalProfiler::FractionalHistogram::binName(uint16_t bin) {
         float to = from + 0.1;
         return to_string_with_precision(from) + " to " + to_string_with_precision(to);
     } 
+}
+
+shared_ptr<ProfilerRegister::ProfilerStats> ProfilerRegister::getStats() {
+    assert(stats != nullptr);
+    return stats;
 }

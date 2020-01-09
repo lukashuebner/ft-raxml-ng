@@ -564,22 +564,38 @@ void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t s
   const uint8_t MPI_ALLREDUCE = 0;
   const uint8_t WORK = 1;
   bool workTimerRan;
+  auto profilerStats = ProfilerRegister::getInstance()->getStats();
+
   if (workTimer->isRunning()) {
     workTimer->endTimer();
     avgTime[WORK] = workTimer->getTimer();
+    profilerStats->numIterations++;
+    profilerStats->nsSumWork += workTimer->getTimer();
+    profilerStats->nsSumOutsideMPI += workTimer->getTimer();
     workTimerRan = true;
   } else {
     avgTime[WORK] = 0;
     workTimerRan = false;
   }
+
   assert(!allreduceTimer->isRunning());
   if (_num_threads > 1) {
     throw runtime_error("Profiling with more than one thread per rank not implemented.");
   }
+
   allreduceTimer->startTimer();
   ParallelContext::parallel_reduce(data, size, op);
   allreduceTimer->endTimer();
   avgTime[MPI_ALLREDUCE] = allreduceTimer->getTimer();
+  profilerStats->nsSumInsideMPI += allreduceTimer->getTimer();
+
+  // How long did the slowest rank take?
+  uint64_t maxWorkTime = workTimer->getTimer();
+  MPI_Allreduce(MPI_IN_PLACE, &maxWorkTime, 1, MPI_UINT64_T, MPI_MAX, _comm);
+  if (maxWorkTime == workTimer->getTimer()) {
+    profilerStats->timesIWasSlowest++;
+  }
+  profilerStats->nsSumWait += (maxWorkTime - workTimer->getTimer());
 
   // Collect how long each rank took to do Work and parallel_reduce
   MPI_Allreduce(MPI_IN_PLACE, &avgTime, 2, MPI_UINT64_T, MPI_SUM, _comm);

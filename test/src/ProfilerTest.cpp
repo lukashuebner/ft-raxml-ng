@@ -53,9 +53,9 @@ TEST(ProfilerTest, InvalidArguments) {
     unique_ptr<ostream> output = unique_ptr<ostream>(new ostringstream());
 
     auto profiler = FractionalProfiler("Testing");
-    ASSERT_ANY_THROW(output = profiler.writeStats(nullptr, move(output), "hello_world()", dummyLabeller, 0));
-    ASSERT_ANY_THROW(profiler.writeStats(profiler.getHistogram()->data(), nullptr, "bye_world()", dummyLabeller, 0));
-    ASSERT_ANY_THROW(output = profiler.writeStats(profiler.getHistogram()->data(), move(output), "bye_world()", dummyLabeller, -1));
+    ASSERT_ANY_THROW(output = profiler.writeTimingsStats(nullptr, move(output), "hello_world()", dummyLabeller, 0));
+    ASSERT_ANY_THROW(profiler.writeTimingsStats(profiler.getHistogram()->data(), nullptr, "bye_world()", dummyLabeller, 0));
+    ASSERT_ANY_THROW(output = profiler.writeTimingsStats(profiler.getHistogram()->data(), move(output), "bye_world()", dummyLabeller, -1));
 
     ASSERT_ANY_THROW(FractionalProfiler::writeCallsPerSecondsHeader(nullptr));
     ASSERT_ANY_THROW(FractionalProfiler::writeCallsPerSecondsStats("hello_world", -1, 1, move(output)));
@@ -254,11 +254,11 @@ TEST(ProfilerTest, writeStats_Empty) {
     unique_ptr<ostream> output = unique_ptr<ostream>(stream);
     auto input = make_shared<vector<uint64_t>>();
 
-    output = FractionalProfiler::writeStats(input, move(output), "hello_world()", dummyLabeller, 0);
+    output = FractionalProfiler::writeTimingsStats(input, move(output), "hello_world()", dummyLabeller, 0);
     ASSERT_TRUE(output);
     ASSERT_EQ(stream->str(), "");
 
-    output = FractionalProfiler::writeStatsHeader(move(output));
+    output = FractionalProfiler::writeTimingsHeader(move(output));
     ASSERT_TRUE(output);
     ASSERT_EQ(stream->str(), statsHeader);
 
@@ -292,8 +292,8 @@ TEST(ProfilerTest, writeStats_Basic) {
     referenceFile.seekg(0);
     referenceFile.read(&referenceString[0], size); // In C++11 and above, string is required to have continuous storage
 
-    output = FractionalProfiler::writeStatsHeader(move(output));
-    output = FractionalProfiler::writeStats(input, move(output), "hello_world()", dummyLabeller, 42);
+    output = FractionalProfiler::writeTimingsHeader(move(output));
+    output = FractionalProfiler::writeTimingsStats(input, move(output), "hello_world()", dummyLabeller, 42);
     ASSERT_EQ(stream->str(), referenceString);
 
     // Calls per second
@@ -410,4 +410,49 @@ TEST(ProfilerTest, SavingTimersOften) {
         ASSERT_FALSE(profiler.isRunning());
     }
     ASSERT_EQ(profiler.getHistogram()->numEvents(), 10);
+}
+
+TEST(ProfilerTest, OverallStatsistics) {
+    auto profilerRegister = ProfilerRegister::getInstance();
+    auto stats = profilerRegister->getStats();
+
+    // In the beginning, are all values set to 0?
+    ASSERT_EQ(stats->nsSumInsideMPI, 0);
+    ASSERT_EQ(stats->nsSumOutsideMPI, 0);
+    ASSERT_EQ(stats->nsSumWait, 0);
+    ASSERT_EQ(stats->nsSumWork, 0);
+    ASSERT_EQ(stats->numIterations, 0);
+    ASSERT_EQ(stats->timesIWasSlowest, 0);
+
+    // Are the values unchanged when running timers?
+    // The values have to be manually changed and are not to be modified by timers.
+    auto zuse = profilerRegister->registerProfiler("Zuse");
+    zuse->startTimer();
+    zuse->endTimer();
+    zuse->saveTimer(zuse->getTimer());
+
+    ASSERT_EQ(stats->nsSumInsideMPI, 0);
+    ASSERT_EQ(stats->nsSumOutsideMPI, 0);
+    ASSERT_EQ(stats->nsSumWait, 0);
+    ASSERT_EQ(stats->nsSumWork, 0);
+    ASSERT_EQ(stats->numIterations, 0);
+    ASSERT_EQ(stats->timesIWasSlowest, 0);
+
+    // Is the information printed correctly?
+    vector<uint64_t> allStatsVec = {
+        1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16
+    };
+    auto allStatsVecPtr = make_shared<vector<uint64_t>>(allStatsVec); // Makes a ptr to a copy!
+
+    string (*dummyLabeller) (size_t) = [](size_t rank) {
+        return (rank == 0 ? string("Schneewittchen") : string("Zwerg"));
+    };
+
+    auto stream = new ostringstream();
+    unique_ptr<ostream> output = unique_ptr<ostream>(stream);
+    output = FractionalProfiler::writeOverallStats(allStatsVecPtr, dummyLabeller, move(output));
+
+    ASSERT_EQ(stream->str(),
+        "rank,processor,nsSumInsideMPI,nsSumOutsideMPI,nsSumWait,nsSumWork,numIterations,timesIWasSlowest\n0,Schneewittchen,1,2,3,4,5,6\n1,Zwerg,11,12,13,14,15,16\n"
+    );
 }

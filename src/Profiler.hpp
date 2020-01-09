@@ -46,30 +46,47 @@ class FractionalProfiler {
         void saveTimer(uint64_t min);
         shared_ptr<FractionalHistogram> getHistogram() const;
         const string getName() const; 
-        static unique_ptr<ostream> writeStatsHeader(unique_ptr<ostream> file);
-        static unique_ptr<ostream> writeStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
-                                              string (*rankToProcessorName) (size_t), int secondsPassed);
+        
+        static unique_ptr<ostream> writeTimingsHeader(unique_ptr<ostream> file);
+        static unique_ptr<ostream> writeTimingsStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
+                                                     string (*rankToProcessorName) (size_t), int secondsPassed);
         static unique_ptr<ostream> writeCallsPerSecondsHeader(unique_ptr<ostream> file);
         static unique_ptr<ostream> writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file);
+        static unique_ptr<ostream> writeOverallStats(shared_ptr<vector<uint64_t>> allStatsVec, string (*rankToProcessorName) (size_t), unique_ptr<ostream> file);
+        
         float eventsPerSecond() const;
         float secondsPassed() const;
         ~FractionalProfiler();
 };
 
 class ProfilerRegister {
+    public:
+        struct ProfilerStats {
+            uint64_t nsSumWork = 0;
+            uint64_t nsSumWait = 0;
+            uint64_t nsSumInsideMPI = 0;
+            uint64_t nsSumOutsideMPI = 0;
+            uint64_t timesIWasSlowest = 0;
+            uint64_t numIterations = 0;
+        };
+
     private:
         unique_ptr<ostream> proFile = nullptr;
         unique_ptr<ostream> callsPerSecondFile = nullptr;
         shared_ptr<map<string, shared_ptr<FractionalProfiler>>> profilers = nullptr;
+        shared_ptr<ProfilerStats> stats = nullptr;
         void createProFile(string path);
         
         ProfilerRegister(string logFile);
         static shared_ptr<ProfilerRegister> singleton;
+        string overallStatsFilename = "";
 
     public:
         static shared_ptr<ProfilerRegister> getInstance();
         static shared_ptr<ProfilerRegister> createInstance(string logFile);
         ProfilerRegister() = delete;
+
+        shared_ptr<ProfilerStats> getStats();
 
         shared_ptr<FractionalProfiler> registerProfiler(string name);
         shared_ptr<FractionalProfiler> getProfiler(string name) const;
