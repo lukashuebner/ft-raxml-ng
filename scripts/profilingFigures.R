@@ -690,5 +690,122 @@ proFileData_overallStats_summary <- inner_join(
   proFileData_overallStats_summary,
   dataDistribution
 )
+
+### Fractional Profiling ###
+csvDirFractional <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/fractional"
+
+# load profiling data from single csv file and add `dataset` column
+# readFileFractional<- function(flnm) {
+#   read_csv(flnm, col_types = cols(
+#     rank = col_integer(),
+#     processor = col_character(),
+#     timer = col_character(),
+#     secondsPassed = col_double(),
+#     bin = col_character(),
+#     count = col_double()
+#   )) %>%
+#     mutate(dataset = str_extract(basename(flnm), "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}")) %>%
+#     group_by(rank, processor, timer, dataset, bin) %>%
+#     select(-secondsPassed) %>%
+#     summarise(count = sum(count))
+# }
+# 
+# # Load all profiling data from multiple runs and aggregate it into `data`
+# proFileData_fractionalStats <-
+#   list.files(
+#     path = csvDirFractional,  
+#     pattern = "*.proFile.csv", 
+#     full.names = T) %>% 
+#   map_df(~readFileFractional(.)) %>%
+#   as_tibble()
+# 
+# write_csv(proFileData_fractionalStats, file.path(csvDirFractional, "fractional_timeless.csv.bz2"))
+proFileData_fractionalStats <- read_csv(
+  file.path(csvDirFractional, "fractional_timeless.csv.bz2"),
+  col_types = cols(
+    rank = col_integer(),
+    processor = col_character(),
+    timer = col_character(),
+    bin = col_character(),
+    count = col_double()
+))
+
+fractionalMidBin <- function(bin) {
+  from <- as.double(str_extract(bin, "^[:digit:]{1,2}\\.[:digit:]{3}"))
+  to <- as.double(str_extract(bin, "[:digit:]{1,2}\\.[:digit:]{3}$"))
+  
+  return((from + to) / 2)
+}
+
+proFileData_fractionalStats$midBin <- fractionalMidBin(proFileData_fractionalStats$bin)
+
+freq_quantiles <- function(data, q) {
+  data %>%
+    group_by(rank, processor, timer, dataset) %>%
+    arrange(fractionalMidBin(bin)) %>%
+    mutate(quantile = cumsum(count / sum(count))) %>%
+    filter(quantile >= q) %>%
+    slice(1) %>%
+    select(-quantile, -count, -bin)
+}
+
+proFileData_fractionalStats_summary <-
+  inner_join(
+    inner_join(
+      inner_join(
+        proFileData_fractionalStats %>%
+          group_by(rank, processor, timer, dataset) %>%
+          summarise(
+            min = min(midBin),
+            max = max(midBin),
+        ),
+        freq_quantiles(proFileData_fractionalStats, 0.00) %>% rename(q01 = midBin),
+        by = c("rank", "processor", "timer", "dataset")
+      ),
+      freq_quantiles(proFileData_fractionalStats, 1.00) %>% rename(q99 = midBin),
+      by = c("rank", "processor", "timer", "dataset")
+    ),
+    freq_quantiles(proFileData_fractionalStats, 0.5) %>% rename(median = midBin),
+    by = c("rank", "processor", "timer", "dataset")
+  )
+
+ggplot() +
+  geom_linerange(
+    data = filter(proFileData_fractionalStats_summary, timer == "MPI_Allreduce"),
+    mapping = aes(ymin = q01, ymax = q99, x = rank, color = as.character(as.integer(rank / 20)))
+  ) +
+  geom_linerange(
+    data = filter(proFileData_fractionalStats_summary, timer == "Work"),
+    mapping = aes(ymin = q01, ymax = q99, x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+  ) +
+  geom_point(
+    data = filter(proFileData_fractionalStats_summary, timer == "MPI_Allreduce"),
+    mapping = aes(y = median, x = rank),
+    color = "black",
+    size = 0.5
+  ) +
+  geom_point(
+    data = filter(proFileData_fractionalStats_summary, timer == "Work"),
+    mapping = aes(y = median, x = rank + maxRanks[as.character(dataset)] * 1.03 + 1),
+    color = "black",
+    size = 0.5
+  ) +
+  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) +
+  scale_y_log10(breaks = scales::pretty_breaks(n = 6)) +
+  scale_x_continuous(
+    breaks = xBreaksGenerator,
+    labels = xLabelsGenerator,
+    expand = c(0.02, 0)
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  scale_color_manual(values = twentyColors) +
+  guides(color = FALSE) +
+  labs(
+    x = "rank",
+    y = "(time spent on work/comm. package) / (avg. time across all ranks)",
     colour = "Code Segment"
   )
