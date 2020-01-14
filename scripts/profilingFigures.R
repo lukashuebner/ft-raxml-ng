@@ -577,5 +577,118 @@ ggplot() +
     y = "0.05 to 0.95 quantiles of time difference to fastest rank",
     colour = "Code Segment"
   )
+
+### Overall statistics ###
+csvDirOverallStats <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/overall"
+
+# load profiling data from single csv file and add `dataset` column
+readFileOverallStats<- function(flnm) {
+  read_csv(flnm, col_types = cols(
+      rank = col_integer(),
+      processor = col_character(),
+      nsSumInsideMPI = col_double(),
+      nsSumOutsideMPI = col_double(),
+      nsSumWait = col_double(),
+      nsSumWork = col_double(),
+      numIterations = col_double(),
+      timesIWasSlowest = col_double()
+    )) %>%
+    mutate(dataset = str_extract(basename(flnm), "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}"))
+}
+
+# Load all profiling data from multiple runs and aggregate it into `data`
+proFileData_overallStats <-
+  list.files(
+    path = csvDirOverallStats,  
+    pattern = "*.overallStats.csv", 
+    full.names = T) %>% 
+  map_df(~readFileOverallStats(.)) %>%
+  as_tibble() %>%
+  mutate(dataset = factor(dataset))
+
+proFileData_overallStats <- inner_join(
+  proFileData_overallStats,
+  proFileData_overallStats %>%
+    group_by(dataset) %>%
+    summarise(avgWork = mean(nsSumWork)) %>%
+    ungroup(),
+  by = "dataset"
+)
+
+# Compute number of ranks
+proFileData_overallStats <- inner_join(
+  by = "dataset",
+  proFileData_overallStats,
+  proFileData_overallStats %>%
+    group_by(dataset) %>%
+    summarise(nRanks = max(rank) + 1)
+)
+
+# Imbalance of work across ranks
+ggplot(data = proFileData_overallStats) +
+  geom_histogram(aes(nsSumWork / avgWork), stat = "bin", binwidth = 0.01) +
+  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    x = "work on this rank / average work across all ranks",
+    y = "rank count"
+  )
+
+# How often was a rank the slowest one?
+ggplot(data = proFileData_overallStats) +
+  geom_histogram(aes(timesIWasSlowest / numIterations), stat = "bin", binwidth = 0.01) +
+  geom_vline(aes(xintercept = 1 / nRanks)) +
+  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    x = "fraction of iterations a rank took longest to finish work",
+    y = "rank count"
+  )
+
+# Imbalance of work and communication
+ggplot(data = proFileData_overallStats) +
+  geom_histogram(aes(nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI)), stat = "bin", binwidth = 0.05) +
+  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
+  scale_x_continuous(limits = c(0, 1)) +
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    x = "time spent doing work / total runtime",
+    y = "rank count"
+  )
+
+## Correlation of work/runtime ~ nRanks
+proFileData_overallStats_summary <- proFileData_overallStats %>%
+  group_by(dataset, nRanks) %>%
+  summarise(fractionDoingWork = mean(nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI)))
+
+dataDistribution <- tribble(
+  ~dataset           , ~partitions, ~sites, ~weightPerThread,
+  "dna_rokasD6_20@10", 1         ,  1133    ,  18128,
+  "dna_rokasD2a_20@1", 1         , 57134    , 914144,
+  "dna_rokasD4_20@8" , 1         ,  1037    ,  16592,
+  "dna_rokasD1_20@4" , 1         ,  9331    , 149296,
+  "dna_rokasD1_20@20", 1         ,  1867    ,  29872,
+  "dna_rokasD1_20@18", 1         ,  2074    ,  33184,
+  "dna_ShiD9_20@1"   , 1         ,   666    ,  10656,
+  "aa_rokasA4_20@8"  , 1         ,  9675    , 193500
+) %>% mutate(dataset = as.factor(dataset))
+
+proFileData_overallStats_summary <- inner_join(
+  by = "dataset",
+  proFileData_overallStats_summary,
+  dataDistribution
+)
     colour = "Code Segment"
   )
