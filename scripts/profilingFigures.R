@@ -387,7 +387,7 @@ csvDirAbsolute <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/absolute"
 
 # load profiling data from single csv file and add `dataset` column
 readFileAbsolute <- function(flnm) {
-  read_csv(flnm, col_types = "icciiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii") %>%
+  read_csv(flnm, col_types = "iciiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii") %>%
     mutate(dataset = str_extract(flnm, "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}"))
 }
 
@@ -403,7 +403,7 @@ proFileDataAbsolute <-
   mutate(dataset = factor(dataset))
 
 proFileDataAbsolute$eventCount <- proFileDataAbsolute %>%
-  select(-rank, -processor, -timer, -dataset) %>%
+  select(-rank, -timer, -dataset) %>%
   rowSums
 
 proFileDataAbsolute$medianBin <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.5))
