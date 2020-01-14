@@ -17,7 +17,7 @@ dataDistribution <- tribble(
   "dna_rokasD2a_20@1", 1         , 57134    , 914144,
   "dna_rokasD4_20@8" , 1         ,  1037    ,  16592,
   "dna_rokasD1_20@4" , 1         ,  9331    , 149296,
-  "dna_rokasD1_20@30", 1         ,  1867    ,  29872,
+  "dna_rokasD1_20@20", 1         ,  1867    ,  29872,
   "dna_rokasD1_20@18", 1         ,  2074    ,  33184,
   "dna_ShiD9_20@1"   , 1         ,   666    ,  10656,
   "aa_rokasA4_20@8"  , 1         ,  9675    , 193500
@@ -100,10 +100,10 @@ ggplot(
 cor.test(1 / callsAndWeight$averageCallsPerSecond, callsAndWeight$weightPerThread, method = "pearson" )
 
 # Calls per second different MPI Implementations
-csvDirDifferentMPI <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/differentMpiIImplementations"
+csvDirDifferentMPI <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/differentMpiImplementations"
 
 # load data from single csv file and add `dataset` column
-readFile <- function(flnm) {
+readFile_dMPI <- function(flnm) {
   read_csv(flnm) %>%
     mutate(dataset = str_extract(basename(flnm), "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}")) %>%
     mutate(mpi = str_extract(basename(flnm), "^([:alnum:]|\\.)+"))
@@ -115,7 +115,7 @@ callsPerSecondData_dMPI <-
     path = csvDirDifferentMPI,  
     pattern = "*.callsPerSecond.csv", 
     full.names = T) %>% 
-  map_df(~readFile(.)) %>%
+  map_df(~readFile_dMPI(.)) %>%
   as_tibble() %>%
   mutate(timer = factor(timer)) %>%
   mutate(dataset = factor(dataset, levels = datasetLevels)) %>%
