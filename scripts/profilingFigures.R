@@ -188,11 +188,11 @@ twentyColors = c("#023fa5", "#bec1d4", "#7d87b9", "#d6bcc0", "#8e063b", "#bb7784
 ggplot() +
   geom_linerange(
     data = filter(proFileDataRelative_timeless, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileDataRelative_timeless, timer == "Work"),
-    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileDataRelative_timeless, timer == "MPI_Allreduce"),
@@ -225,7 +225,7 @@ ggplot() +
   guides(color = FALSE) +
   labs(
     x = "rank",
-    y = "range of time difference to fastest rank",
+    y = "0.05 to 0.95 quantiles of time difference to fastest rank",
     colour = "Code Segment"
   )
 
@@ -444,11 +444,11 @@ names(maxRanks) <- datasets
 ggplot() +
   geom_linerange(
     data = filter(proFileDataAbsolute, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileDataAbsolute, timer == "Work"),
-    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileDataAbsolute, timer == "MPI_Allreduce"),
@@ -481,7 +481,7 @@ ggplot() +
   guides(color = FALSE) +
   labs(
     x = "rank",
-    y = "range of absolute time spent in code segment",
+    y = "range of absolute time spent in code segment (0.05 to 0.95 quantiles)",
     colour = "Code Segment"
   )
 
@@ -534,11 +534,11 @@ proFileData_diffMPI_timeless$q100 <- by(proFileData_diffMPI_timeless, 1:nrow(pro
 ggplot() +
   geom_linerange(
     data = filter(proFileData_diffMPI_timeless, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileData_diffMPI_timeless, timer == "Work"),
-    mapping = aes(ymin = lowerBinBorder(q00), ymax = upperBinBorder(q100), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileData_diffMPI_timeless, timer == "MPI_Allreduce"),
@@ -574,6 +574,8 @@ ggplot() +
   guides(color = FALSE) +
   labs(
     x = "rank",
-    y = "range of time difference to fastest rank",
+    y = "0.05 to 0.95 quantiles of time difference to fastest rank",
+    colour = "Code Segment"
+  )
     colour = "Code Segment"
   )
