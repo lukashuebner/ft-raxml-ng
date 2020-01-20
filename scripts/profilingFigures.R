@@ -720,6 +720,7 @@ csvDirFractional <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/fractional
 #   as_tibble()
 # 
 # write_csv(proFileData_fractionalStats, file.path(csvDirFractional, "fractional_timeless.csv.bz2"))
+
 proFileData_fractionalStats <- read_csv(
   file.path(csvDirFractional, "fractional_timeless.csv.bz2"),
   col_types = cols(
@@ -809,3 +810,82 @@ ggplot() +
     y = "(time spent on work/comm. package) / (avg. time across all ranks)",
     colour = "Code Segment"
   )
+
+### Are site-repeats the cause of imbalance? ###
+csvDirSiteRepeats <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/site-repeats"
+
+# load profiling data from single csv file and add `dataset` column
+readFileSiteRepeats<- function(flnm) {
+  read_csv(flnm, col_types = cols(
+    rank = col_integer(),
+    processor = col_character(),
+    nsSumInsideMPI = col_double(),
+    nsSumOutsideMPI = col_double(),
+    nsSumWait = col_double(),
+    nsSumWork = col_double(),
+    numIterations = col_double(),
+    timesIWasSlowest = col_double()
+  )) %>%
+    mutate(dataset = str_extract(basename(flnm), "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}")) %>%
+    mutate(sr = str_extract(basename(flnm), "^(no-sr|sr)"))
+}
+
+# Load all profiling data from multiple runs and aggregate it into `data`
+proFileData_siteRepeats <-
+  list.files(
+    path = csvDirSiteRepeats,  
+    pattern = "*.overallStats.csv", 
+    full.names = T) %>% 
+  map_df(~readFileSiteRepeats(.)) %>%
+  as_tibble() %>%
+  mutate(dataset = factor(dataset))
+
+proFileData_siteRepeats <- inner_join(
+  proFileData_siteRepeats,
+  proFileData_siteRepeats %>%
+    group_by(dataset, sr) %>%
+    summarise(avgWork = mean(nsSumWork)) %>%
+    ungroup(),
+  by = c("dataset", "sr")
+)
+
+# Compute number of ranks
+proFileData_siteRepeats <- inner_join(
+  by = c("dataset", "sr"),
+  proFileData_siteRepeats,
+  proFileData_siteRepeats %>%
+    group_by(dataset, sr) %>%
+    summarise(nRanks = max(rank) + 1)
+)
+
+# Imbalance of work across ranks
+ggplot(data = proFileData_siteRepeats) +
+  geom_histogram(aes(nsSumWork / avgWork), stat = "bin", binwidth = 0.01) +
+  facet_grid(vars(sr), vars(dataset), scale = "free_y", labeller = labeller(dataset = datasetLabels)) + 
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    x = "work on this rank / average work across all ranks",
+    y = "rank count"
+  )
+
+# Imbalance of work and communication
+ggplot(data = proFileData_siteRepeats) +
+  geom_histogram(aes(nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI)), stat = "bin", binwidth = 0.05) +
+  facet_grid(vars(sr), vars(dataset), scale = "free_y", labeller = labeller(dataset = datasetLabels)) + 
+  scale_x_continuous(limits = c(0, 1)) +
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    x = "time spent doing work / total runtime",
+    y = "rank count"
+  )
+
+ggplot(data = proFileData_siteRepeats) %>%
+  geom_bar(aes(x = nsSumInsideMPI + nsSumOutsideMPI))
