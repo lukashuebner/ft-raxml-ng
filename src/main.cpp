@@ -2618,7 +2618,16 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
 
 int clean_exit(int retval)
 {
-  ParallelContext::finalize(retval != EXIT_SUCCESS);
+  // TODO: Check for failed ranks before calling this
+  // We have checked for rank failures after finishing our computations, we therefore can ignore
+  // all futher rank failures, as they won't influence the result.
+  try {
+    ParallelContext::finalize(retval != EXIT_SUCCESS);
+  } catch (ParallelContext::RankFailureException& e) {
+    LOG_WARN << "A rank failure occurred when finalizing the MPI subsystem. This should not have influenced the computation." << endl;
+  } catch (ParallelContext::UnrecoverableRankFailureException& e) {
+    LOG_WARN << "A rank failure occurred when finalizing the MPI subsystem. This should not have influenced the computation." << endl;
+  }
   return retval;
 }
 
@@ -2768,7 +2777,25 @@ int internal_main(int argc, char** argv, void* comm)
                                                        std::ref(instance),
                                                        std::ref(cm)));
 
-        master_main(instance, cm);
+        while (42) {
+          try {
+            master_main(instance, cm);
+            // Some rank failures might hide from some ranks until the next collective operation
+            ParallelContext::check_for_rank_failure();
+            break; // on success
+          } catch (ParallelContext::RankFailureException& e) {
+            LOG_ERROR << endl << "####################" << endl;
+            LOG_PROGR << e.what() << " Restarting from checkpoint" << endl;
+            LOG_PROGR << "####################" << endl << endl;
+            instance.opts.redo_mode = false; // Prevent program from starting over after each rank failure
+            srand(opts.random_seed); // Reset random number generator for enhanced reproducability
+          } catch (ParallelContext::UnrecoverableRankFailureException& e) {
+            LOG_ERROR << endl << "####################" << endl;
+            LOG_ERROR << "MPI Communicator is invalid, cannot proceed." << endl;
+            LOG_ERROR << "####################" << endl;
+            break;
+          }
+        }
         break;
       }
       case Command::support:

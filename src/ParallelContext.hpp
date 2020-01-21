@@ -5,6 +5,7 @@
 #include <set>
 #include <unordered_map>
 #include <memory>
+#include <string>
 
 #include <functional>
 
@@ -97,7 +98,17 @@ public:
 
   static void mpi_gather_custom(std::function<int(void*,int)> prepare_send_cb,
                                 std::function<void(void*,int)> process_recv_cb);
-
+                                
+  #ifdef _RAXML_MPI
+  // Will throw a RankFailureException and repair the communicator if a rank failed
+  static void check_for_rank_failure();
+  // For testing purposes; the rank with id <rank> will fail
+  static void fail(size_t rank);
+  // Will sleep until a debugger attaches and changes a local variable using for example
+  // (gdb) set var i = 1
+  static void waitForDebugger(); 
+  #endif
+    
   static bool master() { return proc_id() == 0; }
   static bool master_rank() { return _rank_id == 0; }
   static bool master_thread() { return _thread_id == 0; }
@@ -138,7 +149,7 @@ public:
   private:
     LockType _lock;
   };
-
+  
   class GroupLock
   {
   public:
@@ -147,7 +158,29 @@ public:
     LockType _lock;
   };
 
+  struct RankFailureException : public std::exception
+  {
+    const char * what() const throw() {
+      return "MPI rank failure";
+    }
+  };
+
+  struct UnrecoverableRankFailureException : public std::exception
+  {
+    const char * what() const throw() {
+      return "Unrecoverable MPI rank failure";
+    }
+  };
+
 private:
+#ifdef _RAXML_MPI
+  // Has the MPI subsystem been finalized?
+  static bool mpi_finalized();
+  // Converts a MPI error code and respective error class into human readable format
+  static std::string mpi_err_to_string(int errorCode);
+#endif
+
+  static void fault_tolerant_mpi_call(const std::function<int()> mpi_call);
   static std::vector<ThreadType> _threads;
   static size_t _num_threads;
   static size_t _num_ranks;

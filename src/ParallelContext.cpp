@@ -2,6 +2,10 @@
 
 #include "Options.hpp"
 
+#include <mpi-ext.h>
+#include <signal.h>
+#include <cassert>
+
 using namespace std;
 
 // This is just a default size; the buffer will be resized later according to #part and #threads
@@ -37,6 +41,14 @@ ThreadGroup& ParallelContext::thread_group(size_t id)
     throw runtime_error("Invalid thread group id: " + to_string(id));
 }
 
+#ifdef _RAXML_MPI
+void ParallelContext::fail(size_t rankId) {
+  if (_rank_id == rankId) {
+    raise(SIGKILL);
+  }
+}
+#endif
+
 void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
 {
 #ifdef _RAXML_MPI
@@ -58,6 +70,9 @@ void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
       MPI_Init(&argc, &argv);
     }
 
+    // Set errorhandler to return so we have a change to mitigate failures
+    MPI_Comm_set_errhandler(_comm, MPI_ERRORS_RETURN);
+
     MPI_Comm_rank(_comm, &tmp);
     _rank_id = (size_t) tmp;
     MPI_Comm_size(_comm, &tmp);
@@ -73,6 +88,94 @@ void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
   RAXML_UNUSED(comm);
 #endif
 }
+
+#ifdef _RAXML_MPI
+bool ParallelContext::mpi_finalized() {
+  int finalized;
+  MPI_Finalized(&finalized);
+  return finalized;
+}
+#endif
+
+#ifdef _RAXML_MPI
+string ParallelContext::mpi_err_to_string(int errorCode) {
+  int errorClass;
+  int errorStringLength, errorClassStringLength;
+  char errorString[BUFSIZ];
+  char errorClassString[BUFSIZ];
+
+  MPI_Error_string(errorCode, errorString, &errorStringLength);
+
+  MPI_Error_class(errorCode, &errorClass);
+  MPI_Error_string(errorClass, errorClassString, &errorClassStringLength);
+
+  return string(errorString) + " (" + string(errorClassString) + ")"; 
+}
+#endif
+
+void ParallelContext::waitForDebugger() {
+  volatile int i = 0;
+  char hostname[256];
+  gethostname(hostname, sizeof(hostname));
+  printf("PID %d on %s ready for attach\n", getpid(), hostname);
+  fflush(stdout);
+  while (0 == i) {
+    sleep(5);
+  }
+}
+
+#ifdef _RAXML_MPI
+void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
+{
+  assert(_comm != MPI_COMM_NULL);
+  int rc, ec;
+  rc = mpi_call();
+  MPI_Error_class(rc, &ec);
+
+  if (ec == MPI_ERR_PROC_FAILED || ec == MPI_ERR_REVOKED) {
+    if (ec == MPI_ERR_PROC_FAILED) {
+        MPIX_Comm_revoke(_comm);
+    }
+
+    // Build a new communicator without the failed ranks
+    MPI_Comm newComm;
+    if ((rc = MPIX_Comm_shrink(_comm, &newComm)) != MPI_SUCCESS) {
+      LOG_ERROR << "A rank failure was detected, but building the new communicator using "
+                << "MPI_Comm_shrink failed with err.: " << mpi_err_to_string(rc) << endl; 
+      throw UnrecoverableRankFailureException();
+    }
+    assert(_comm != MPI_COMM_NULL);
+    // As for the example in the ULFM documentation, freeing the communicator is necessary.
+    // If trying to do so, however, MPI_ERR_COMM will be returned. 
+    // --mca mpi_show_handle_leaks 1 does not show a leaked handle, so mayble MPIX_Comm_Shrink
+    // already frees the communicator.
+    /*if ((rc = MPI_Comm_free(&_comm)) != MPI_SUCCESS) {
+      LOG_ERROR << "A rank failure was detected, but freeing the old communicator using "
+                << "MPI_Comm_free failed with err.: " << mpi_err_to_string(rc) << endl;
+      throw UnrecoverableRankFailureException();
+    }*/
+    _comm = newComm;
+
+    // Update world parameters
+    int numRanks = -1, rankId = -1;
+    MPI_Comm_size(_comm, &numRanks);
+    MPI_Comm_rank(_comm, &rankId);
+    assert(numRanks >= 1);
+    assert(rankId >= 0);
+    _num_ranks = (size_t)numRanks;
+    _rank_id = (size_t)rankId;
+    detect_num_nodes();
+    throw RankFailureException();
+  }
+}
+#endif
+
+#ifdef _RAXML_MPI
+void ParallelContext::check_for_rank_failure() {
+  assert(!mpi_finalized());
+  fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
+}
+#endif
 
 void ParallelContext::start_thread(size_t thread_id, size_t local_thread_id,
                                    ThreadGroup& thread_grp,
@@ -178,13 +281,18 @@ void ParallelContext::detect_num_nodes()
         RAXML_UNUSED(buf_size);
        };
 
-    ParallelContext::mpi_gather_custom(worker_cb, master_cb);
-
-    /* number of nodes = number of unique hostnames */
-    _num_nodes = node_names.size();
-
     /* broadcast number of nodes from master */
-    MPI_Bcast(&_num_nodes, sizeof(size_t), MPI_BYTE, 0, _comm);
+    try {
+      ParallelContext::mpi_gather_custom(worker_cb, master_cb);
+
+      /* number of nodes = number of unique hostnames */
+      _num_nodes = node_names.size();
+      fault_tolerant_mpi_call([&] () {
+        return MPI_Bcast(&_num_nodes, sizeof(size_t), MPI_BYTE, 0, _comm);
+      });
+    } catch (RankFailureException &e) {
+      // If this fails, we can ignore it, as this function (detect_num_nodes) will be called by the error handler
+    }
   }
   else
     _num_nodes = 1;
@@ -214,17 +322,25 @@ void ParallelContext::finalize(bool force)
 #endif
 
 #ifdef _RAXML_MPI
+  assert(!mpi_finalized());
+  // Do we own the communicator -- i.e. is RAxML used as a standalone application and not as a library?
   if (_owns_comm)
   {
-    if (force)
+    // Pass on rank failure (which might have happened earlier in another collective call.)
+    if (force) {
+      // Why bother checking for dead ranks? All ranks will be killed anyway.
       MPI_Abort(_comm, -1);
-    else
-      MPI_Barrier(_comm);
+    } else {
+      fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
+    }
 
+    // After MPI_Finalize() is called, even MPI_Error_class() is no longer allowed -> there is no way to check for error
     MPI_Finalize();
   }
-  else
+  else {
+    assert("Fault tolerance is not supported in combination with RAxML being used as a library.");
     MPI_Barrier(_comm);
+  }
 #endif
 }
 
@@ -253,8 +369,10 @@ void ParallelContext::global_barrier()
 void ParallelContext::global_mpi_barrier()
 {
 #ifdef _RAXML_MPI
-  if (_thread_id == 0 && _num_ranks > 1)
-    MPI_Barrier(_comm);
+  assert(!mpi_finalized());
+  if (_thread_id == 0 && _num_ranks > 1) {
+    fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
+  }
 #endif
 }
 
@@ -262,8 +380,9 @@ void ParallelContext::mpi_barrier()
 {
 #ifdef _RAXML_MPI
   // TODO: support multiple ranks per worker
-  if (_thread_id == 0 && _num_ranks > _num_groups)
-    MPI_Barrier(_comm);
+  if (_thread_id == 0 && _num_ranks > _num_groups) {
+    fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
+  }
 #endif
 }
 
@@ -385,7 +504,9 @@ void ParallelContext::parallel_reduce(double * data, size_t size, int op)
         assert(0);
 
 #if 1
-      MPI_Allreduce(MPI_IN_PLACE, data, size, MPI_DOUBLE, reduce_op, _comm);
+      fault_tolerant_mpi_call([&]() {
+          return MPI_Allreduce(MPI_IN_PLACE, data, size, MPI_DOUBLE, reduce_op, _comm);
+      });
 #else
       // not sure if MPI_IN_PLACE will work in all cases...
       MPI_Allreduce(data, _parallel_buf.data(), size, MPI_DOUBLE, reduce_op, _comm);
@@ -431,8 +552,9 @@ void ParallelContext::thread_broadcast(size_t source_id, void * data, size_t siz
 void ParallelContext::mpi_broadcast(void * data, size_t size)
 {
 #ifdef _RAXML_MPI
-  if (_num_ranks > 1)
-    MPI_Bcast(data, size, MPI_BYTE, 0, _comm);
+  if (_num_ranks > 1) {
+    fault_tolerant_mpi_call([&] () { return MPI_Bcast(data, size, MPI_BYTE, 0, _comm); });
+  }
 #else
   RAXML_UNUSED(data);
   RAXML_UNUSED(size);
@@ -483,15 +605,17 @@ void ParallelContext::mpi_gather_custom(std::function<int(void*,int)> prepare_se
     {
       int recv_size;
       MPI_Status status;
-      MPI_Probe(r, 0, _comm, &status);
-      MPI_Get_count(&status, MPI_BYTE, &recv_size);
+      fault_tolerant_mpi_call([&] () { return MPI_Probe(r, 0, _comm, &status); });
+      fault_tolerant_mpi_call([&] () { return MPI_Get_count(&status, MPI_BYTE, &recv_size); });
 
 //      printf("recv: %lu\n", recv_size);
 
       _parallel_buf.reserve(recv_size);
 
-      MPI_Recv((void*) _parallel_buf.data(), recv_size, MPI_BYTE,
-               r, 0, _comm, MPI_STATUS_IGNORE);
+      fault_tolerant_mpi_call([&] () {
+        return MPI_Recv((void*) _parallel_buf.data(), recv_size, MPI_BYTE,
+                        r, 0, _comm, MPI_STATUS_IGNORE);
+      });
 
       process_recv_cb(_parallel_buf.data(), recv_size);
     }
@@ -501,7 +625,9 @@ void ParallelContext::mpi_gather_custom(std::function<int(void*,int)> prepare_se
     auto send_size = prepare_send_cb(_parallel_buf.data(), _parallel_buf.capacity());
 //    printf("sent: %lu\n", send_size);
 
-    MPI_Send(_parallel_buf.data(), send_size, MPI_BYTE, 0, 0, _comm);
+    fault_tolerant_mpi_call([&] () {
+      return MPI_Send(_parallel_buf.data(), send_size, MPI_BYTE, 0, 0, _comm);
+    });
   }
 #else
   RAXML_UNUSED(prepare_send_cb);
