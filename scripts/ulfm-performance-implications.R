@@ -94,4 +94,3 @@ sr_runtimes <- inner_join(
 )
 
 sr_runtimes <- sr_runtimes %>% mutate(speedup = reference / runtime) %>% select(-reference)
-
