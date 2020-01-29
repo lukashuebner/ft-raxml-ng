@@ -82,7 +82,7 @@ sr_runtimes <- tribble(
   "site-repeats OFF", "dna_ShiD9_20@1", 48450.181,
   "site-repeats OFF", "aa_rokasA4_20@8", 7718.041,
   "site_repeats ON", "dna_rokasD1_20@18", 1351.651,
-  "site-repeats ON", "dna_rokasD2a_20@1", NA,
+  "site-repeats ON", "dna_rokasD2a_20@1", 38806.859,
   "site-repeats ON", "dna_ShiD9_20@1", 20910.897,
   "site-repeats ON", "aa_rokasA4_20@8", 5582.245
 )
