@@ -2,6 +2,7 @@
 
 #include "TreeInfo.hpp"
 #include "ParallelContext.hpp"
+#include "Checkpoint.hpp"
 
 using namespace std;
 
@@ -271,6 +272,8 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     libpll_check_error("ERROR in substitution rates optimization");
     assert_lh_improvement(cur_loglh, new_loglh, "RATES");
     cur_loglh = new_loglh;
+
+    CheckpointManager::update_models(*this);
   }
 
   /* optimize BASE FREQS */
@@ -288,6 +291,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     libpll_check_error("ERROR in base frequencies optimization");
     assert_lh_improvement(cur_loglh, new_loglh, "FREQS");
     cur_loglh = new_loglh;
+    CheckpointManager::update_models(*this);
   }
 
   // TODO: co-optimization of PINV and ALPHA, mb with multiple starting points
@@ -309,6 +313,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     libpll_check_error("ERROR in alpha/p-inv parameter optimization");
     assert_lh_improvement(cur_loglh, new_loglh, "ALPHA+PINV");
     cur_loglh = new_loglh;
+    CheckpointManager::update_models(*this);
   }
   else
   {
@@ -326,6 +331,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
      libpll_check_error("ERROR in alpha parameter optimization");
      assert_lh_improvement(cur_loglh, new_loglh, "ALPHA");
      cur_loglh = new_loglh;
+    CheckpointManager::update_models(*this);
     }
 
     /* optimize PINV */
@@ -342,6 +348,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
       libpll_check_error("ERROR in p-inv optimization");
       assert_lh_improvement(cur_loglh, new_loglh, "PINV");
       cur_loglh = new_loglh;
+    CheckpointManager::update_models(*this);
     }
   }
 
@@ -365,6 +372,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     libpll_check_error("ERROR in FreeRate rates/weights optimization");
     assert_lh_improvement(cur_loglh, new_loglh, "FREE RATES");
     cur_loglh = new_loglh;
+    CheckpointManager::update_models(*this);
   }
 
   if (params_to_optimize & PLLMOD_OPT_PARAM_BRANCHES_ITERATIVE)
@@ -373,6 +381,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 
     assert_lh_improvement(cur_loglh, new_loglh, "BRLEN");
     cur_loglh = new_loglh;
+    CheckpointManager::update_models(*this);
   }
 
   return new_loglh;

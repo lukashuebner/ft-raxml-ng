@@ -186,6 +186,60 @@ void CheckpointManager::save_bs_tree()
   }
 }
 
+ModelMap CheckpointManager::_all_models;
+// TODO: Merge functionality of this function and update_and_write() as well as gather_model_params()
+void CheckpointManager::update_models(const TreeInfo& treeinfo) {
+  IDSet modelIDs;
+
+  ParallelContext::barrier();
+
+  _all_models.clear();
+  for (auto p: treeinfo.parts_master())
+  {
+    /* we will modify a global map -> define critical section */
+    ParallelContext::GroupLock lock;
+
+    Model model;
+    assign(model, treeinfo, p);
+    modelIDs.insert(p);
+    _all_models[p] = model;
+  }
+
+  ParallelContext::barrier();
+
+  // TODO: Maybe some kind of AllToAll would be faster here
+  if (ParallelContext::ranks_per_group() > 1) {
+    auto sender_cb = [&modelIDs](void * buf, size_t buf_size) -> int
+      {
+        BinaryStream bs((char*) buf, buf_size);
+        bs << modelIDs.size();
+        for (auto p: modelIDs)
+        {
+          bs << p << _all_models.at(p);
+        }
+        return (int) bs.pos();
+      };
+
+    auto receiver_cb = [&modelIDs](void * buf, size_t buf_size)
+      {
+        BinaryStream bs((char*) buf, buf_size);
+        auto model_count = bs.get<size_t>();
+        for (size_t m = 0; m < model_count; ++m)
+        {
+          size_t part_id;
+          bs >> part_id;
+
+          // read parameter estimates from binary stream
+          bs >> _all_models[part_id];
+          modelIDs.insert(part_id);
+        }
+      };
+
+    ParallelContext::mpi_gather_custom(sender_cb, receiver_cb);
+    ParallelContext::global_master_broadcast_custom(sender_cb, receiver_cb, sizeof(Model) * modelIDs.size());
+  }
+}
+
 void CheckpointManager::update_and_write(const TreeInfo& treeinfo)
 {
   if (ParallelContext::master_thread())

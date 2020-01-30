@@ -98,6 +98,9 @@ public:
   void enable() { _active = true; }
   void disable() { _active = false; }
 
+  // TODO: Should this be in it's own class?
+  static void update_models(const TreeInfo& treeinfo);
+
   void update_and_write(const TreeInfo& treeinfo);
 
   void save_ml_tree();
@@ -121,6 +124,7 @@ private:
   CheckpointFile _checkp_file;
   IDSet _updated_models;
   SearchState _empty_search_state;
+  static ModelMap _all_models;
 
   void gather_model_params();
   std::string backup_fname() const { return _ckp_fname + ".bk"; }

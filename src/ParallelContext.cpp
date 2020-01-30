@@ -5,6 +5,7 @@
 #include <mpi-ext.h>
 #include <signal.h>
 #include <cassert>
+#include <iostream>
 
 using namespace std;
 
@@ -122,6 +123,10 @@ void ParallelContext::waitForDebugger() {
   while (0 == i) {
     sleep(5);
   }
+}
+
+void ParallelContext::log(string message) {
+  cout << "[" << _rank_id << "] " << message << endl;
 }
 
 #ifdef _RAXML_MPI
@@ -538,6 +543,7 @@ void ParallelContext::thread_broadcast(size_t source_id, void * data, size_t siz
   global_thread_barrier();
 
 //  pthread_barrier_wait(&barrier);
+  // Full memory barrier
   __sync_synchronize();
 
   /* read from buf*/
@@ -590,6 +596,40 @@ void ParallelContext::thread_send_master(size_t source_id, void * data, size_t s
   }
 
   barrier();
+}
+
+void ParallelContext::global_master_broadcast_custom(std::function<int(void*, int)> prepare_send_cb,
+                                                     std::function<void(void*,int)> process_recv_cb,
+                                                     size_t sizeOfBuffer)
+{
+#ifdef _RAXML_MPI
+  /* we're gonna use _parallel_buf, so make sure other threads don't interfere... */
+  UniqueLock lock;
+
+  // Serialize objects (prepare_send_cb) and broadcast the size of the message so the receivers can allocate enough space
+  size_t sizeOfMessage;
+  std::vector<char> buffer;
+  if (master()) {
+    buffer.reserve(sizeOfBuffer);
+    sizeOfMessage = prepare_send_cb(buffer.data(), buffer.capacity());
+  }
+  global_master_broadcast(&sizeOfMessage, sizeof(size_t));
+
+  // Reserve space on receivers and broadcast
+  if (!master()) {
+    buffer.reserve(sizeOfMessage);
+  }
+  global_mpi_barrier();
+  global_master_broadcast(buffer.data(), sizeOfMessage);  
+
+  // Deserialize received objects (process_recv_cb)
+  if (!master()) {
+    process_recv_cb(buffer.data(), sizeOfMessage);
+  }
+#else
+  RAXML_UNUSED(prepare_send_cb);
+  RAXML_UNUSED(process_recv_cb);
+#endif
 }
 
 void ParallelContext::mpi_gather_custom(std::function<int(void*,int)> prepare_send_cb,
