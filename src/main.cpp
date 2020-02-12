@@ -2368,7 +2368,8 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 
   gather_ml_trees(batch_id);
 
-  // TODO Implement failure mitigation
+  // No failure mitigation as MPI parallelization is not supported when searching
+  // for ancestral states.
   if (opts.command == Command::ancestral)
   {
     assert(!opts.use_pattern_compression);
@@ -2654,7 +2655,6 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
 
 int clean_exit(int retval)
 {
-  // TODO: Check for failed ranks before calling this
   // We have checked for rank failures after finishing our computations, we therefore can ignore
   // all futher rank failures, as they won't influence the result.
   try {
