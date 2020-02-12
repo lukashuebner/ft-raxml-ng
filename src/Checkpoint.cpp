@@ -186,23 +186,43 @@ void CheckpointManager::save_bs_tree()
   }
 }
 
+bool CheckpointManager::_models_initialized = false;
 ModelMap CheckpointManager::_all_models;
+
+// The models have to be initalized once from instance.parted_msa.models(), as assing(model, treeinfo_partiton)
+// won't copy over everything (e.g. rate heterogeneity).
+void CheckpointManager::init_models(const ModelCRefMap& models) {
+  assert(!_models_initialized);
+  for (auto m: models) {
+    _all_models[m.first] = m.second;
+  }
+  _models_initialized = true;
+}
+
+const ModelMap& CheckpointManager::all_models() {
+  assert(_models_initialized);
+  return _all_models; 
+}
+
 // TODO: Merge functionality of this function and update_and_write() as well as gather_model_params()
+// TODO: Make fault-tolerant
 void CheckpointManager::update_models(const TreeInfo& treeinfo) {
+  assert(_models_initialized);
   IDSet modelIDs;
 
   ParallelContext::barrier();
 
-  _all_models.clear();
+  // Do not clear all models. The assign seems to not update all aspects of the model.
+  // We will for example loose the rate heterogeneity.
+  // _all_models.clear()
+
   for (auto p: treeinfo.parts_master())
   {
     /* we will modify a global map -> define critical section */
     ParallelContext::GroupLock lock;
 
-    Model model;
-    assign(model, treeinfo, p);
+    assign(_all_models[p], treeinfo, p);
     modelIDs.insert(p);
-    _all_models[p] = model;
   }
 
   ParallelContext::barrier();
@@ -229,7 +249,6 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
           size_t part_id;
           bs >> part_id;
 
-          // read parameter estimates from binary stream
           bs >> _all_models[part_id];
           modelIDs.insert(part_id);
         }
@@ -255,7 +274,7 @@ void CheckpointManager::update_and_write(const TreeInfo& treeinfo)
     ParallelContext::GroupLock lock;
 
     assign(ckp.models.at(p), treeinfo, p);
-
+    
     /* remember which models were updated but this rank ->
      * will be used later to collect them at the master */
     _updated_models.insert(p);

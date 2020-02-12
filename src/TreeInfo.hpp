@@ -6,6 +6,9 @@
 #include "Options.hpp"
 #include "AncestralStates.hpp"
 #include "loadbalance/PartitionAssignment.hpp"
+#include <memory>
+#include <string>
+#include <functional>
 
 struct spr_round_params
 {
@@ -28,7 +31,8 @@ class TreeInfo
 {
 public:
   TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
-            const IDVector& tip_msa_idmap, const PartitionAssignment& part_assign);
+            const IDVector& tip_msa_idmap, const PartitionAssignment& part_assign,
+            std::function<PartitionAssignment()> redo_assignment_cb);
   TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
             const IDVector& tip_msa_idmap, const PartitionAssignment& part_assign,
             const std::vector<uintVector>& site_weights);
@@ -70,12 +74,50 @@ private:
   double _brlen_max;
   bool _check_lh_impr;
   doubleVector _partition_contributions;
+  struct __partition_reinit_info_t {
+    __partition_reinit_info_t(const Options &opts,
+                              const PartitionedMSA& parted_msa,
+                              const IDVector& tip_msa_idmap,
+                              const std::vector<uintVector>& site_weights) :
+      parted_msa(parted_msa), site_weights(site_weights), opts(opts), tip_msa_idmap(tip_msa_idmap) {}
+
+    const PartitionedMSA& parted_msa;
+    // This has to be copied, as the object passed to the constructor won't life long enough to be
+    // around for the reinitialization.
+    const std::vector<uintVector> site_weights;
+    const Options &opts;
+    const IDVector& tip_msa_idmap;
+  };
+  typedef __partition_reinit_info_t partition_reinit_info_t;
+  std::shared_ptr<partition_reinit_info_t> partition_reinit_info = nullptr;
 
   void init(const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
             const IDVector& tip_msa_idmap, const PartitionAssignment& part_assign,
             const std::vector<uintVector>& site_weights);
+  
+  // Will use the stored partition info to reinitialize partitions
+  void reinit_partitions(const PartitionAssignment& part_assign); 
+
+  void init_partitions(const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
+                               const IDVector& tip_msa_idmap,
+                               const PartitionAssignment& part_assign,
+                               const std::vector<uintVector>& site_weights);
 
   void assert_lh_improvement(double old_lh, double new_lh, const std::string& where = "");
+
+  // Mini checkpoints are used to restore to in case of rank failure. This creates one.
+  void mini_checkpoint();
+
+  // The callback function which can be used by this object to recalculate the sites to rank assignment
+  std::function<PartitionAssignment()> redo_assignment_cb;
+
+  // Calculate a new site to rank assignment and update the treeinfo structure to it. 
+  void update_to_new_assignment();
+
+  // Wrapper to call an optimization function until a pass succeeds without a rank failure.
+  // On failure, the ParallelContext is updated to include only non-failed ranks, the models and tree stored at the
+  // last mini_checkpoint() are restored and the optimization routine is invoked again.
+  double fault_tolerant_parameter_optimization(std::string parameter, const std::function<double()> optimizer);
 };
 
 void assign(PartitionedMSA& parted_msa, const TreeInfo& treeinfo);

@@ -3,12 +3,16 @@
 #include "TreeInfo.hpp"
 #include "ParallelContext.hpp"
 #include "Checkpoint.hpp"
+#include "io/file_io.hpp"
+#include <cassert>
 
 using namespace std;
 
 TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
                     const IDVector& tip_msa_idmap,
-                    const PartitionAssignment& part_assign)
+                    const PartitionAssignment& part_assign,
+                    std::function<PartitionAssignment()> redo_assignment_cb) :
+                    redo_assignment_cb(redo_assignment_cb)
 {
   init(opts, tree, parted_msa, tip_msa_idmap, part_assign, std::vector<uintVector>());
 }
@@ -31,12 +35,11 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
   _brlen_opt_method = opts.brlen_opt_method;
   _check_lh_impr = opts.safety_checks.isset(SafetyCheck::model_lh_impr);
   _partition_contributions.resize(parted_msa.part_count());
-  double total_weight = 0;
 
+  // TODO Has this to be updated when the site assignment changes? --> Assume not
   _pll_treeinfo = pllmod_treeinfo_create(pll_utree_graph_clone(&tree.pll_utree_root()),
                                          tree.num_tips(),
                                          parted_msa.part_count(), opts.brlen_linkage);
-
   libpll_check_error("ERROR creating treeinfo structure");
   assert(_pll_treeinfo);
 
@@ -46,8 +49,37 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
                                          ParallelContext::parallel_reduce_cb);
   }
 
-  // init partitions
+  init_partitions(opts, tree, parted_msa, tip_msa_idmap, part_assign, site_weights);
+  partition_reinit_info = make_shared<partition_reinit_info_t>(opts, parted_msa, tip_msa_idmap, site_weights);
+}
+
+void TreeInfo::reinit_partitions(const PartitionAssignment& part_assign) {
+  Tree tree(*_pll_treeinfo->tree);
+
+  // TODO: Maybe we can reuse some parts of the treeinfo structure?
+  // If you try: Check for bug in case of node failure before alpha optimization
+  pllmod_treeinfo_reset_partitions(_pll_treeinfo);
+  pll_utree_graph_destroy(_pll_treeinfo->root, NULL);
+  pllmod_treeinfo_destroy(_pll_treeinfo);
+
+  init(partition_reinit_info->opts,
+                  tree,
+                  partition_reinit_info->parted_msa,
+                  partition_reinit_info->tip_msa_idmap,
+                  part_assign,
+                  partition_reinit_info->site_weights);
+
+  LOG_DEBUG << "Restored the following tree:" << endl;
+  LOG_DEBUG << to_newick_string_rooted(tree, 0) << endl;
+}
+
+void TreeInfo::init_partitions(const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
+                               const IDVector& tip_msa_idmap,
+                               const PartitionAssignment& part_assign,
+                               const std::vector<uintVector>& site_weights)
+{
   int optimize_branches = opts.optimize_brlen ? PLLMOD_OPT_PARAM_BRANCHES_ITERATIVE : 0;
+  double total_weight = 0;
 
   for (size_t p = 0; p < parted_msa.part_count(); ++p)
   {
@@ -92,8 +124,9 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
                tree.num_branches() * sizeof(double));
       }
 
-      if (part_range->master())
+      if (part_range->master()) {
         _parts_master.insert(p);
+      }
     }
     else
     {
@@ -206,6 +239,7 @@ void TreeInfo::model(size_t partition_id, const Model& model)
 
 //#define DBG printf
 
+// TODO: failure mitigation
 double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor)
 {
   /* update all CLVs and p-matrices before calling BLO */
@@ -249,6 +283,57 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
   return new_loglh;
 }
 
+void TreeInfo::update_to_new_assignment() {
+  auto part_assign = redo_assignment_cb();
+  reinit_partitions(part_assign);
+  
+  for (auto& m: CheckpointManager::all_models())
+  {
+    LOG_DEBUG << "Restoring model " << m.first << " to:" << endl;
+    LOG_DEBUG << m.second << endl;
+
+    // Locally restore the model, if we have a partition with this model assigned
+    if (_pll_treeinfo->partitions[m.first]) {
+      model(m.first, m.second);
+    }
+  }
+}
+
+void TreeInfo::mini_checkpoint() {
+  CheckpointManager::update_models(*this);
+}
+
+double TreeInfo::fault_tolerant_parameter_optimization(string parameter, const function<double()> optimizer) {
+  double new_loglh = 1;
+  for (;;) {
+    #ifndef NDEBUG
+    string beforeFailureTree;
+    beforeFailureTree = to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0);
+    #endif
+
+    try{
+      // Run optimization code during which rank failure might occur
+      new_loglh = optimizer();
+
+      // Check whether a rank failure occurred but not all ranks got notified yet.
+      ParallelContext::check_for_rank_failure();
+
+      break;
+    } catch (ParallelContext::RankFailureException& e) {
+      LOG_ERROR << "Rank failure during " << parameter << " optimization." << endl;
+      update_to_new_assignment();
+      LOG_PROGR << "Restoration completed successfully." << endl;
+
+      #ifndef NDEBUG
+      assert(beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
+      #endif
+    }
+  }
+  assert(new_loglh <= 0);
+  return new_loglh;
+}
+
+
 double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 {
   assert(!pll_errno);
@@ -257,15 +342,20 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     cur_loglh = loglh(),
     new_loglh = cur_loglh;
 
+  mini_checkpoint();
+
   /* optimize SUBSTITUTION RATES */
   if (params_to_optimize & PLLMOD_OPT_PARAM_SUBST_RATES)
   {
-    new_loglh = -1 * pllmod_algo_opt_subst_rates_treeinfo(_pll_treeinfo,
-                                                          0,
-                                                          PLLMOD_OPT_MIN_SUBST_RATE,
-                                                          PLLMOD_OPT_MAX_SUBST_RATE,
-                                                          RAXML_BFGS_FACTOR,
-                                                          RAXML_PARAM_EPSILON);
+    new_loglh = fault_tolerant_parameter_optimization("substitution rates", [this]() -> double {
+      return -1 * pllmod_algo_opt_subst_rates_treeinfo(this->_pll_treeinfo,
+                                                       0,
+                                                       PLLMOD_OPT_MIN_SUBST_RATE,
+                                                       PLLMOD_OPT_MAX_SUBST_RATE,
+                                                       RAXML_BFGS_FACTOR,
+                                                       RAXML_PARAM_EPSILON);
+    });
+    mini_checkpoint();
 
     LOG_DEBUG << "\t - after rates: logLH = " << new_loglh << endl;
 
@@ -279,19 +369,21 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
   /* optimize BASE FREQS */
   if (params_to_optimize & PLLMOD_OPT_PARAM_FREQUENCIES)
   {
-    new_loglh = -1 * pllmod_algo_opt_frequencies_treeinfo(_pll_treeinfo,
-                                                          0,
-                                                          PLLMOD_OPT_MIN_FREQ,
-                                                          PLLMOD_OPT_MAX_FREQ,
-                                                          RAXML_BFGS_FACTOR,
-                                                          RAXML_PARAM_EPSILON);
+    new_loglh = fault_tolerant_parameter_optimization("frequencies", [this]() -> double {
+      return -1 * pllmod_algo_opt_frequencies_treeinfo(this->_pll_treeinfo,
+                                                       0,
+                                                       PLLMOD_OPT_MIN_FREQ,
+                                                       PLLMOD_OPT_MAX_FREQ,
+                                                       RAXML_BFGS_FACTOR,
+                                                       RAXML_PARAM_EPSILON);
+    });
+    mini_checkpoint();
 
     LOG_DEBUG << "\t - after freqs: logLH = " << new_loglh << endl;
 
     libpll_check_error("ERROR in base frequencies optimization");
     assert_lh_improvement(cur_loglh, new_loglh, "FREQS");
     cur_loglh = new_loglh;
-    CheckpointManager::update_models(*this);
   }
 
   // TODO: co-optimization of PINV and ALPHA, mb with multiple starting points
@@ -299,72 +391,91 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
       (params_to_optimize & PLLMOD_OPT_PARAM_ALPHA) &&
       (params_to_optimize & PLLMOD_OPT_PARAM_PINV))
   {
-    new_loglh = -1 * pllmod_algo_opt_alpha_pinv_treeinfo(_pll_treeinfo,
-                                                         0,
-                                                         PLLMOD_OPT_MIN_ALPHA,
-                                                         PLLMOD_OPT_MAX_ALPHA,
-                                                         PLLMOD_OPT_MIN_PINV,
-                                                         PLLMOD_OPT_MAX_PINV,
-                                                         RAXML_BFGS_FACTOR,
-                                                         RAXML_PARAM_EPSILON);
+    new_loglh = fault_tolerant_parameter_optimization("alpha & pinv", [this]() -> double {
+      return -1 * pllmod_algo_opt_alpha_pinv_treeinfo(_pll_treeinfo,
+                                                      0,
+                                                      PLLMOD_OPT_MIN_ALPHA,
+                                                      PLLMOD_OPT_MAX_ALPHA,
+                                                      PLLMOD_OPT_MIN_PINV,
+                                                      PLLMOD_OPT_MAX_PINV,
+                                                      RAXML_BFGS_FACTOR,
+                                                      RAXML_PARAM_EPSILON);
+    });
+    mini_checkpoint();
 
     LOG_DEBUG << "\t - after a+i  : logLH = " << new_loglh << endl;
 
     libpll_check_error("ERROR in alpha/p-inv parameter optimization");
     assert_lh_improvement(cur_loglh, new_loglh, "ALPHA+PINV");
     cur_loglh = new_loglh;
-    CheckpointManager::update_models(*this);
   }
   else
   {
     /* optimize ALPHA */
     if (params_to_optimize & PLLMOD_OPT_PARAM_ALPHA)
     {
-      new_loglh = -1 * pllmod_algo_opt_onedim_treeinfo(_pll_treeinfo,
-                                                        PLLMOD_OPT_PARAM_ALPHA,
-                                                        PLLMOD_OPT_MIN_ALPHA,
-                                                        PLLMOD_OPT_MAX_ALPHA,
-                                                        RAXML_PARAM_EPSILON);
+      new_loglh = fault_tolerant_parameter_optimization("alpha", [this]() -> double {
+        return -1 * pllmod_algo_opt_onedim_treeinfo(this->_pll_treeinfo,
+                                                    PLLMOD_OPT_PARAM_ALPHA,
+                                                    PLLMOD_OPT_MIN_ALPHA,
+                                                    PLLMOD_OPT_MAX_ALPHA,
+                                                    RAXML_PARAM_EPSILON);
+      });
+      mini_checkpoint();
 
-     LOG_DEBUG << "\t - after alpha: logLH = " << new_loglh << endl;
+      LOG_DEBUG << "\t - after alpha: logLH = " << new_loglh << endl;
 
-     libpll_check_error("ERROR in alpha parameter optimization");
-     assert_lh_improvement(cur_loglh, new_loglh, "ALPHA");
-     cur_loglh = new_loglh;
-    CheckpointManager::update_models(*this);
+      libpll_check_error("ERROR in alpha parameter optimization");
+      assert_lh_improvement(cur_loglh, new_loglh, "ALPHA");
+      cur_loglh = new_loglh;
     }
 
     /* optimize PINV */
     if (params_to_optimize & PLLMOD_OPT_PARAM_PINV)
     {
-      new_loglh = -1 * pllmod_algo_opt_onedim_treeinfo(_pll_treeinfo,
-                                                        PLLMOD_OPT_PARAM_PINV,
-                                                        PLLMOD_OPT_MIN_PINV,
-                                                        PLLMOD_OPT_MAX_PINV,
-                                                        RAXML_PARAM_EPSILON);
+      new_loglh = fault_tolerant_parameter_optimization("p-inv", [this]() -> double {
+        return -1 * pllmod_algo_opt_onedim_treeinfo(this->_pll_treeinfo,
+                                                    PLLMOD_OPT_PARAM_PINV,
+                                                    PLLMOD_OPT_MIN_PINV,
+                                                    PLLMOD_OPT_MAX_PINV,
+                                                    RAXML_PARAM_EPSILON);
+      });
+      mini_checkpoint();
 
       LOG_DEBUG << "\t - after p-inv: logLH = " << new_loglh << endl;
 
       libpll_check_error("ERROR in p-inv optimization");
       assert_lh_improvement(cur_loglh, new_loglh, "PINV");
       cur_loglh = new_loglh;
-    CheckpointManager::update_models(*this);
     }
   }
 
   /* optimize FREE RATES and WEIGHTS */
   if (params_to_optimize & PLLMOD_OPT_PARAM_FREE_RATES)
   {
-    new_loglh = -1 * pllmod_algo_opt_rates_weights_treeinfo (_pll_treeinfo,
+    cur_loglh = fault_tolerant_parameter_optimization("rates & weights", [this]() -> double {
+      return pllmod_treeinfo_compute_loglh(this->_pll_treeinfo, 0);
+    });
+    mini_checkpoint();
+
+    new_loglh = fault_tolerant_parameter_optimization("rates & weights", [this]() -> double {
+      return -1 * pllmod_algo_opt_rates_weights_treeinfo (this->_pll_treeinfo,
                                                           RAXML_FREERATE_MIN,
                                                           RAXML_FREERATE_MAX,
                                                           RAXML_BFGS_FACTOR,
                                                           RAXML_PARAM_EPSILON);
-
+    });
+    mini_checkpoint();
+    
     /* normalize scalers and scale the branches accordingly */
     if (_pll_treeinfo->brlen_linkage == PLLMOD_COMMON_BRLEN_SCALED &&
-        _pll_treeinfo->partition_count > 1)
-      pllmod_treeinfo_normalize_brlen_scalers(_pll_treeinfo);
+        _pll_treeinfo->partition_count > 1) {
+      fault_tolerant_parameter_optimization("rates & weights", [this]() -> double {
+        pllmod_treeinfo_normalize_brlen_scalers(this->_pll_treeinfo);
+        return 0.;
+      });
+      mini_checkpoint();
+    }
 
     LOG_DEBUG << "\t - after freeR: logLH = " << new_loglh << endl;
 //    LOG_DEBUG << "\t - after freeR/crosscheck: logLH = " << loglh() << endl;
@@ -372,16 +483,16 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     libpll_check_error("ERROR in FreeRate rates/weights optimization");
     assert_lh_improvement(cur_loglh, new_loglh, "FREE RATES");
     cur_loglh = new_loglh;
-    CheckpointManager::update_models(*this);
   }
 
   if (params_to_optimize & PLLMOD_OPT_PARAM_BRANCHES_ITERATIVE)
   {
+    // Branch optimization has it's own failure mitigation
     new_loglh = optimize_branches(lh_epsilon, 0.25);
+    mini_checkpoint();
 
     assert_lh_improvement(cur_loglh, new_loglh, "BRLEN");
     cur_loglh = new_loglh;
-    CheckpointManager::update_models(*this);
   }
 
   return new_loglh;
@@ -389,6 +500,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 
 double TreeInfo::spr_round(spr_round_params& params)
 {
+  // TODO failure mitigation
   double loglh = pllmod_algo_spr_round(_pll_treeinfo, params.radius_min, params.radius_max,
                                params.ntopol_keep, params.thorough, _brlen_opt_method,
                                _brlen_min, _brlen_max, RAXML_BRLEN_SMOOTHINGS,
@@ -416,6 +528,7 @@ void TreeInfo::set_topology_constraint(const Tree& cons_tree)
 void TreeInfo::compute_ancestral(const AncestralStatesSharedPtr& ancestral,
                                  const PartitionAssignment& part_assign)
 {
+  // TODO: failure mitigation
   pllmod_ancestral_t * pll_ancestral = pllmod_treeinfo_compute_ancestral(_pll_treeinfo);
 
   if (!pll_ancestral)

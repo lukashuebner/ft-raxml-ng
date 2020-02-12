@@ -2,7 +2,10 @@
 
 #include "Options.hpp"
 
+#ifdef _RAXML_MPI
 #include <mpi-ext.h>
+#endif
+
 #include <signal.h>
 #include <cassert>
 #include <iostream>
@@ -43,9 +46,13 @@ ThreadGroup& ParallelContext::thread_group(size_t id)
 }
 
 #ifdef _RAXML_MPI
-void ParallelContext::fail(size_t rankId) {
+uint64_t ParallelContext::failureCounter = 0;
+void ParallelContext::fail(size_t rankId, uint64_t on_nth_call) {
   if (_rank_id == rankId) {
-    raise(SIGKILL);
+    failureCounter++;
+    if (failureCounter == on_nth_call) {
+      raise(SIGKILL);
+    }
   }
 }
 #endif

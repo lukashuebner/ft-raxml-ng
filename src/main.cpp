@@ -69,6 +69,10 @@ struct RaxmlInstance
   map<BranchSupportMetric, shared_ptr<SupportTree> > support_trees;
   shared_ptr<ConsensusTree> consens_tree;
 
+  // When a rank failure occurs, the work has to be redistributed from within
+  // the algorithm (TreeInfo for now). This requires callbacks.
+  function<PartitionAssignmentList()> load_balancer_cb;
+
   TreeList start_trees;
   BootstrapReplicateList bs_reps;
   TreeList bs_start_trees;
@@ -1340,8 +1344,9 @@ void build_start_trees(RaxmlInstance& instance, size_t skip_trees)
   }
 }
 
-void balance_load(RaxmlInstance& instance)
-{
+// This will build a function which will recalculate the load balancing based on the current
+// number of ranks. This can be helpful, if the number of ranks changed due to a rank failure.
+std::function<PartitionAssignmentList()> build_load_balancer(RaxmlInstance& instance) {
   PartitionAssignment part_sizes;
 
   /* init list of partition sizes */
@@ -1352,13 +1357,19 @@ void balance_load(RaxmlInstance& instance)
     ++i;
   }
 
-  instance.proc_part_assign =
-      instance.load_balancer->get_all_assignments(part_sizes, ParallelContext::threads_per_group());
+  return [&instance, part_sizes] () -> PartitionAssignmentList {
+      return instance.load_balancer->get_all_assignments(part_sizes, ParallelContext::threads_per_group());
+  };
+}
 
+void balance_load(RaxmlInstance& instance, std::function<PartitionAssignmentList()> load_balancer)
+{
+  instance.proc_part_assign = load_balancer();
   LOG_INFO_TS << "Data distribution: " << PartitionAssignmentStats(instance.proc_part_assign) << endl;
   LOG_VERB << endl << instance.proc_part_assign;
 }
 
+// TODO: Failure mitigation in case of bootstrap replicates (different load balancer)
 PartitionAssignmentList balance_load(RaxmlInstance& instance, WeightVectorList part_site_weights)
 {
   /* This function is used to re-distribute sites across processes for each bootstrap replicate.
@@ -2212,6 +2223,29 @@ void init_parallel_buffers(const RaxmlInstance& instance)
   ParallelContext::resize_buffers(reduce_buffer_size, worker_buf_size);
 }
 
+void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
+  // TODO: Fault-tolerance in case of coarse-grained parallelization
+  // doesn't work with coarse-grained parallelization!
+  assert(ParallelContext::num_groups() == 1);
+
+  // collect PartitionAssignments from all worker threads
+  PartitionAssignment local_part_ranges;
+  for (size_t i = 0; i < instance.opts.num_threads; ++i)
+  {
+    auto thread_ranges = instance.proc_part_assign.at(ParallelContext::local_proc_id() + i);
+    for (auto& r: thread_ranges)
+    {
+      local_part_ranges.assign_sites(r.part_id, r.start, r.length);
+    }
+  }
+
+  LOG_DEBUG << "Loading MSA segments from RBA file " << instance.opts.msa_file << "..." << endl;
+
+  // TODO: This must be stored somewhere, right?
+  RBAStream bs(instance.opts.msa_file + ".raxml.rba");
+  bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
+}
+
 void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 {
   auto& worker = instance.get_worker();
@@ -2253,8 +2287,18 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 
   unsigned int batch_id = (instance.done_ml_trees.size() / opts.bootstop_interval) + 1;
 
+  auto redo_assignment_cb = [&instance] () {
+    LOG_DEBUG << "Rebalancing load:" << endl;
+    balance_load(instance, instance.load_balancer_cb);
+
+    load_assignment_data_for_this_rank(instance);
+
+    return instance.proc_part_assign.at(ParallelContext::local_proc_id());
+  };
+
   auto ckp_tree_index = instance.run_phase == RaxmlRunPhase::mlsearch ? checkp.tree_index : 0;
   ParallelContext::thread_barrier();
+  // TODO: Failure-mitigation for more than one starting tree?
   for (auto start_tree_num: worker.start_trees)
   {
     const auto& tree = instance.start_trees.at(start_tree_num-1);
@@ -2263,15 +2307,18 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
     if (ckp_tree_index == start_tree_num)
     {
       // restore search state from checkpoint (tree + model params)
+      // TODO Do we need the part_assign parameter? Or could be computed using the redo_assignment_cb (probably)
       treeinfo.reset(new TreeInfo(opts, checkp.tree, master_msa,
-                                  instance.tip_msa_idmap, part_assign));
+                                  instance.tip_msa_idmap, part_assign,
+                                  redo_assignment_cb));
       assign_models(*treeinfo, checkp);
     }
     else
     {
       if (ParallelContext::group_master_thread())
         checkp.tree_index = start_tree_num;
-      treeinfo.reset(new TreeInfo(opts, tree, master_msa, instance.tip_msa_idmap, part_assign));
+      treeinfo.reset(new TreeInfo(opts, tree, master_msa, instance.tip_msa_idmap,
+                                  part_assign, redo_assignment_cb));
     }
 
     treeinfo->set_topology_constraint(instance.constraint_tree);
@@ -2321,6 +2368,7 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 
   gather_ml_trees(batch_id);
 
+  // TODO Implement failure mitigation
   if (opts.command == Command::ancestral)
   {
     assert(!opts.use_pattern_compression);
@@ -2526,6 +2574,9 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
   /* load checkpoint */
   load_checkpoint(instance, cm);
 
+  // Also initialize mini-checkpoint's datastructures
+  CheckpointManager::init_models(instance.parted_msa->models());
+
   /* load/create starting tree if not already loaded from checkpoint */
   if (instance.start_trees.size() < opts.num_searches)
   {
@@ -2552,28 +2603,13 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
   }
 
   /* run load balancing algorithm */
-  balance_load(instance);
+  instance.load_balancer_cb = build_load_balancer(instance);
+  balance_load(instance, instance.load_balancer_cb);
 
   /* lazy-load part of the alignment assigned to the current MPI rank */
   if (opts.use_rba_partload)
   {
-    // doesn't work with coarse-grained parallelization!
-    assert(ParallelContext::num_groups() == 1);
-
-    // collect PartitionAssignments from all worker threads
-    PartitionAssignment local_part_ranges;
-    for (size_t i = 0; i < opts.num_threads; ++i)
-    {
-      auto thread_ranges = instance.proc_part_assign.at(ParallelContext::local_proc_id() + i);
-      for (auto& r: thread_ranges)
-      {
-        local_part_ranges.assign_sites(r.part_id, r.start, r.length);
-      }
-    }
-
-    LOG_DEBUG << "Loading MSA segments from RBA file..." << endl;
-    RBAStream bs(opts.msa_file);
-    bs >> RBAStream::RBAOutput(parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
+    load_assignment_data_for_this_rank(instance);
   }
 
   // TEMP WORKAROUND: here we reset random seed once again to make sure that BS replicates
