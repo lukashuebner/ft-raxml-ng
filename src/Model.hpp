@@ -210,6 +210,12 @@ typedef std::unordered_map<size_t, Model> ModelMap;
 typedef std::unordered_map<size_t, Model&> ModelRefMap;
 typedef std::unordered_map<size_t, const Model&> ModelCRefMap;
 
+
+// These will only copy over the model parameters, NOT the model definition.
+// Model m;
+// assign(m, _pll_treeinfo->partitions[part_id])
+// will NOT leave you with a copy of the model. You'll have to copy the model from
+// instance.parted_msa->models() and then update it's parameters using assing(...)
 void assign(Model& model, const pll_partition_t * partition);
 void assign(pll_partition_t * partition, const Model& model);
 
