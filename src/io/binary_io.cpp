@@ -51,6 +51,8 @@ BasicBinaryStream& operator<<(BasicBinaryStream& stream, const Model& m)
 
   stream << m.num_ratecats();
 
+  // If there is only one rate category, the weight and rate will be set to a default value
+  // which will never change. We therefore do not need to store these in the stream.
   if (m.num_ratecats() > 1)
   {
     stream << m.ratehet_mode();
@@ -157,6 +159,7 @@ BasicBinaryStream& operator>>(BasicBinaryStream& stream, Model& m)
 
   assert(num_ratecats == m.num_ratecats());
 
+  // See serialization for explanation on case num_ratecats == 1
   if (m.num_ratecats() > 1)
   {
     auto ratehet_mode = stream.get<unsigned int>();
