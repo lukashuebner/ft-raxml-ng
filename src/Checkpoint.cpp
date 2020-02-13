@@ -206,6 +206,9 @@ const ModelMap& CheckpointManager::all_models() {
 
 // TODO: Merge functionality of this function and update_and_write() as well as gather_model_params()
 // TODO: Make fault-tolerant
+// Possible challenges:
+//   - Work since the previous checkpoint is lost -> caller has to recompute this
+//   - We'll need a mechanism to "atomically" enable the new checkpoint
 void CheckpointManager::update_models(const TreeInfo& treeinfo) {
   assert(_models_initialized);
   IDSet modelIDs;
