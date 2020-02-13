@@ -117,7 +117,7 @@ private:
   // Wrapper to call an optimization function until a pass succeeds without a rank failure.
   // On failure, the ParallelContext is updated to include only non-failed ranks, the models and tree stored at the
   // last mini_checkpoint() are restored and the optimization routine is invoked again.
-  double fault_tolerant_parameter_optimization(std::string parameter, const std::function<double()> optimizer);
+  double fault_tolerant_optimization(std::string parameter, const std::function<double()> optimizer);
 };
 
 void assign(PartitionedMSA& parted_msa, const TreeInfo& treeinfo);
