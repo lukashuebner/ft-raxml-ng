@@ -70,6 +70,8 @@ void TreeInfo::reinit_partitions(const PartitionAssignment& part_assign) {
                   part_assign,
                   partition_reinit_info->site_weights);
 
+  pllmod_treeinfo_update_partials_and_clvs(_pll_treeinfo);
+  
   LOG_DEBUG << "Restored the following tree:" << endl;
   LOG_DEBUG << to_newick_string_rooted(tree, 0) << endl;
 }
@@ -252,7 +254,6 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
     int max_iters = brlen_smooth_factor * RAXML_BRLEN_SMOOTHINGS;
     new_loglh = fault_tolerant_parameter_optimization("branch length",
       [this, lh_epsilon, brlen_smooth_factor, max_iters]() -> double {
-        pllmod_treeinfo_update_partials_and_clvs(_pll_treeinfo);
         return -1 * pllmod_algo_opt_brlen_treeinfo(_pll_treeinfo,
                                                    _brlen_min,
                                                    _brlen_max,
