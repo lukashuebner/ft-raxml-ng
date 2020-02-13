@@ -56,7 +56,8 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
 void TreeInfo::reinit_partitions(const PartitionAssignment& part_assign) {
   Tree tree(*_pll_treeinfo->tree);
 
-  // TODO: Maybe we can reuse some parts of the treeinfo structure?
+  // TODO: Maybe we can reuse some parts of the treeinfo structure? For this, we need to update
+  // the tree in the treeinfo structure.
   // If you try: Check for bug in case of node failure before alpha optimization
   pllmod_treeinfo_reset_partitions(_pll_treeinfo);
   pll_utree_graph_destroy(_pll_treeinfo->root, NULL);
@@ -239,23 +240,29 @@ void TreeInfo::model(size_t partition_id, const Model& model)
 
 //#define DBG printf
 
-// TODO: failure mitigation
 double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor)
 {
   /* update all CLVs and p-matrices before calling BLO */
   double new_loglh = loglh();
 
+  mini_checkpoint();
+
   if (_pll_treeinfo->params_to_optimize[0] & PLLMOD_OPT_PARAM_BRANCHES_ITERATIVE)
   {
     int max_iters = brlen_smooth_factor * RAXML_BRLEN_SMOOTHINGS;
-    new_loglh = -1 * pllmod_algo_opt_brlen_treeinfo(_pll_treeinfo,
-                                                    _brlen_min,
-                                                    _brlen_max,
-                                                    lh_epsilon,
-                                                    max_iters,
-                                                    _brlen_opt_method,
-                                                    PLLMOD_OPT_BRLEN_OPTIMIZE_ALL
-                                                    );
+    new_loglh = fault_tolerant_parameter_optimization("branch length",
+      [this, lh_epsilon, brlen_smooth_factor, max_iters]() -> double {
+        pllmod_treeinfo_update_partials_and_clvs(_pll_treeinfo);
+        return -1 * pllmod_algo_opt_brlen_treeinfo(_pll_treeinfo,
+                                                   _brlen_min,
+                                                   _brlen_max,
+                                                   lh_epsilon,
+                                                   max_iters,
+                                                   _brlen_opt_method,
+                                                   PLLMOD_OPT_BRLEN_OPTIMIZE_ALL
+                                                  );
+    });
+    mini_checkpoint();
 
     LOG_DEBUG << "\t - after brlen: logLH = " << new_loglh << endl;
 
@@ -267,12 +274,15 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
   if (_pll_treeinfo->brlen_linkage == PLLMOD_COMMON_BRLEN_SCALED &&
       _pll_treeinfo->partition_count > 1)
   {
-    new_loglh = -1 * pllmod_algo_opt_brlen_scalers_treeinfo(_pll_treeinfo,
-                                                            RAXML_BRLEN_SCALER_MIN,
-                                                            RAXML_BRLEN_SCALER_MAX,
-                                                            _brlen_min,
-                                                            _brlen_max,
-                                                            RAXML_PARAM_EPSILON);
+    new_loglh = fault_tolerant_parameter_optimization("branch length scalers", [this]() -> double {
+      return -1 * pllmod_algo_opt_brlen_scalers_treeinfo(_pll_treeinfo,
+                                                         RAXML_BRLEN_SCALER_MIN,
+                                                         RAXML_BRLEN_SCALER_MAX,
+                                                         _brlen_min,
+                                                         _brlen_max,
+                                                         RAXML_PARAM_EPSILON);
+    });
+    mini_checkpoint();
 
     LOG_DEBUG << "\t - after brlen scalers: logLH = " << new_loglh << endl;
 
