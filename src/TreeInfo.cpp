@@ -508,9 +508,9 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
   return new_loglh;
 }
 
+// TODO failure mitigation
 double TreeInfo::spr_round(spr_round_params& params)
 {
-  // TODO failure mitigation
   double loglh = pllmod_algo_spr_round(_pll_treeinfo, params.radius_min, params.radius_max,
                                params.ntopol_keep, params.thorough, _brlen_opt_method,
                                _brlen_min, _brlen_max, RAXML_BRLEN_SMOOTHINGS,
@@ -535,6 +535,7 @@ void TreeInfo::set_topology_constraint(const Tree& cons_tree)
   }
 }
 
+// No MPI-parallelization support -> no fault tolerance
 void TreeInfo::compute_ancestral(const AncestralStatesSharedPtr& ancestral,
                                  const PartitionAssignment& part_assign)
 {
