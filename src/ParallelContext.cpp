@@ -330,13 +330,10 @@ void ParallelContext::detect_num_nodes()
 }
 
 void ParallelContext::saveProfilingData() {
-  assert(workTimer->isRunning());
-  assert(!allreduceTimer->isRunning());
-  workTimer->abortTimer();
   ProfilerRegister::getInstance()->saveProfilingData(master(), _num_ranks, &(ParallelContext::rankToProcessorName), _comm);
 }
 
-void ParallelContext::resize_buffer(size_t size)
+void ParallelContext::resize_buffers(size_t reduce_buf_size, size_t worker_buf_size)
 {
   _parallel_buf.reserve(worker_buf_size);
   for (auto& grp: _thread_groups)
@@ -367,11 +364,6 @@ void ParallelContext::finalize(bool force)
       MPI_Abort(_comm, -1);
     } else {
 	fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
-    }
-
-    assert(!allreduceTimer->isRunning());
-    if (workTimer->isRunning()) {
-      workTimer->abortTimer();
     }
     MPI_Finalize();
   }
@@ -560,54 +552,7 @@ void ParallelContext::parallel_reduce(double * data, size_t size, int op)
 
 void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t size, int op)
 {
-  uint64_t avgTime[2];
-  const uint8_t MPI_ALLREDUCE = 0;
-  const uint8_t WORK = 1;
-  bool workTimerRan;
-  auto profilerStats = ProfilerRegister::getInstance()->getStats();
-
-  if (workTimer->isRunning()) {
-    workTimer->endTimer();
-    avgTime[WORK] = workTimer->getTimer();
-    profilerStats->numIterations++;
-    profilerStats->nsSumWork += workTimer->getTimer();
-    profilerStats->nsSumOutsideMPI += workTimer->getTimer();
-    workTimerRan = true;
-  } else {
-    avgTime[WORK] = 0;
-    workTimerRan = false;
-  }
-
-  assert(!allreduceTimer->isRunning());
-  if (_num_threads > 1) {
-    throw runtime_error("Profiling with more than one thread per rank not implemented.");
-  }
-
-  allreduceTimer->startTimer();
   ParallelContext::parallel_reduce(data, size, op);
-  allreduceTimer->endTimer();
-  avgTime[MPI_ALLREDUCE] = allreduceTimer->getTimer();
-  profilerStats->nsSumInsideMPI += allreduceTimer->getTimer();
-
-  // How long did the slowest rank take?
-  uint64_t maxWorkTime = workTimer->getTimer();
-  MPI_Allreduce(MPI_IN_PLACE, &maxWorkTime, 1, MPI_UINT64_T, MPI_MAX, _comm);
-  if (maxWorkTime == workTimer->getTimer()) {
-    profilerStats->timesIWasSlowest++;
-  }
-  profilerStats->nsSumWait += (maxWorkTime - workTimer->getTimer());
-
-  // Collect how long each rank took to do Work and parallel_reduce
-  MPI_Allreduce(MPI_IN_PLACE, &avgTime, 2, MPI_UINT64_T, MPI_SUM, _comm);
-  avgTime[MPI_ALLREDUCE] /= num_ranks();
-  avgTime[WORK] /= num_ranks();
-
-  if (workTimerRan) {
-    workTimer->saveTimer(avgTime[WORK]);
-  }
-  allreduceTimer->saveTimer(avgTime[MPI_ALLREDUCE]);
-
-  workTimer->startTimer();
   RAXML_UNUSED(context);
 }
 

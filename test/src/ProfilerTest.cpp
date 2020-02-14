@@ -305,7 +305,7 @@ TEST(ProfilerTest, writeStats_Basic) {
 
 TEST(ProfilerTest, ProfilerRegister) {
     // An instance is already created in ParallelContext.cpp
-    // auto profilerRegister = ProfilerRegister::createInstance("dummyFile");
+    ProfilerRegister::createInstance("dummyFile");
     // TODO: Create a properly named file (filename determined by prefix passed on the command line)
     auto profilerRegister = ProfilerRegister::getInstance();
     ASSERT_ANY_THROW(profilerRegister->getProfiler("non-existent"));
@@ -322,8 +322,9 @@ TEST(ProfilerTest, ProfilerRegister) {
     hwProfiler->saveTimer(111970);
     ASSERT_EQ(hwProfiler->getHistogram()->numEvents(), 1);
 
-    ASSERT_EQ(0, remove("profile_2.callsPerSecond.csv"));
-    ASSERT_EQ(0, remove("profile_2.proFile.csv"));
+    // ASSERT_EQ(0, remove("profile_2.callsPerSecond.csv"));
+    // ASSERT_EQ(0, remove("profile_2.proFile.csv"));
+    // ASSERT_EQ(0, remove("dummyFile"));
 }
 
 TEST(ProfilerTest, PausingTimers) {
@@ -412,7 +413,8 @@ TEST(ProfilerTest, SavingTimersOften) {
     ASSERT_EQ(profiler.getHistogram()->numEvents(), 10);
 }
 
-TEST(ProfilerTest, OverallStatsistics) {
+TEST(ProfilerTest, OverallStatistics) {
+    //ProfilerRegister::createInstance("tmplog.log");
     auto profilerRegister = ProfilerRegister::getInstance();
     auto stats = profilerRegister->getStats();
 
@@ -455,4 +457,5 @@ TEST(ProfilerTest, OverallStatsistics) {
     ASSERT_EQ(stream->str(),
         "rank,processor,nsSumInsideMPI,nsSumOutsideMPI,nsSumWait,nsSumWork,numIterations,timesIWasSlowest\n0,Schneewittchen,1,2,3,4,5,6\n1,Zwerg,11,12,13,14,15,16\n"
     );
+    //ASSERT_EQ(0, remove("tmplog.log"));
 }
