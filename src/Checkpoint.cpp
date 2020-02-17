@@ -192,7 +192,8 @@ ModelMap CheckpointManager::_all_models;
 // The models have to be initalized once from instance.parted_msa.models(), as assing(model, treeinfo_partiton)
 // won't copy over everything (e.g. rate heterogeneity).
 void CheckpointManager::init_models(const ModelCRefMap& models) {
-  assert(!_models_initialized);
+  // Do not asserts that the models were not initialized before, as this may happen if we
+  // restart from a checkpoint after rank failure.
   for (auto m: models) {
     _all_models[m.first] = m.second;
   }
