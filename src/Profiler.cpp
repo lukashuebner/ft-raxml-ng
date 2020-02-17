@@ -372,12 +372,19 @@ void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (
     // Arrange profiler stats data
     auto profilerStats = ProfilerRegister::getInstance()->getStats();
     vector<uint64_t> statsVec = {
-        profilerStats->nsSumInsideMPI,
-        profilerStats->nsSumOutsideMPI,
-        profilerStats->nsSumWait,
-        profilerStats->nsSumWork,
-        profilerStats->numIterations,
-        profilerStats->timesIWasSlowest
+        // profilerStats->nsSumInsideMPI,
+        // profilerStats->nsSumOutsideMPI,
+        // profilerStats->nsSumWait,
+        // profilerStats->nsSumWork,
+        // profilerStats->numIterations,
+        // profilerStats->timesIWasSlowest
+        profilerStats->nsSumMiniCheckpoints,
+        profilerStats->numMiniCheckpoints,
+        profilerStats->numRecoveries,
+        profilerStats->nsSumLostWork,
+        profilerStats->nsSumRecalculateAssignment,
+        profilerStats->nsSumReloadSites,
+        profilerStats->nsSumRestoreModels
     };
 
     if (master) {
@@ -416,17 +423,18 @@ unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsStats(string timer, 
 }
 
 unique_ptr<ostream> FractionalProfiler::writeOverallStats(shared_ptr<vector<uint64_t>> allStatsVec, string (*rankToProcessorName) (size_t), unique_ptr<ostream> file) {
-    assert(allStatsVec->size() % 6 == 0);
-    size_t numRanks = allStatsVec->size() / 6;
+    assert(allStatsVec->size() % ProfilerRegister::OVERALL_STAT_COUNT == 0);
+    size_t numRanks = allStatsVec->size() / ProfilerRegister::OVERALL_STAT_COUNT;
     // See saveProfilingData(...) for order of fields
-    *file << "rank,processor,nsSumInsideMPI,nsSumOutsideMPI,nsSumWait,nsSumWork,numIterations,timesIWasSlowest" << endl;
+    //*file << "rank,processor,nsSumInsideMPI,nsSumOutsideMPI,nsSumWait,nsSumWork,numIterations,timesIWasSlowest" << endl;
+    *file << "rank,processor,nsSumMiniCheckpoints,numMiniCheckpoints,numRecoveries,nsSumLostWork,nsSumRecalculateAssignment,nsSumReloadSites,nsSumRestoreModels" << endl;
     for (size_t rank = 0; rank < numRanks; rank++) {
-        size_t base = rank * 6;
+        size_t base = rank * ProfilerRegister::OVERALL_STAT_COUNT;
         *file << rank << ",";
         *file << (*rankToProcessorName)(rank) << ",";
-        for (uint8_t i = 0; i < 6; i++) {
+        for (uint8_t i = 0; i < ProfilerRegister::OVERALL_STAT_COUNT; i++) {
             *file << to_string((*allStatsVec)[base + i]);
-            if (i != 5) {
+            if (i != ProfilerRegister::OVERALL_STAT_COUNT - 1) {
                 *file << ",";
             }
         }

@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include "Profiler.hpp"
 
 struct spr_round_params
 {
@@ -74,6 +75,7 @@ private:
   double _brlen_max;
   bool _check_lh_impr;
   doubleVector _partition_contributions;
+  static std::shared_ptr<ProfilerRegister> _profiler_register;
   struct __partition_reinit_info_t {
     __partition_reinit_info_t(const Options &opts,
                               const PartitionedMSA& parted_msa,
@@ -118,6 +120,9 @@ private:
   // On failure, the ParallelContext is updated to include only non-failed ranks, the models and tree stored at the
   // last mini_checkpoint() are restored and the optimization routine is invoked again.
   double fault_tolerant_optimization(std::string parameter, const std::function<double()> optimizer);
+
+  // Will not reinitiate but reuse the profiler if called twice
+  void init_profiler();
 };
 
 void assign(PartitionedMSA& parted_msa, const TreeInfo& treeinfo);

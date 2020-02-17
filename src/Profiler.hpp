@@ -62,13 +62,21 @@ class FractionalProfiler {
 class ProfilerRegister {
     public:
         struct ProfilerStats {
-            uint64_t nsSumWork = 0;
-            uint64_t nsSumWait = 0;
-            uint64_t nsSumInsideMPI = 0;
-            uint64_t nsSumOutsideMPI = 0;
-            uint64_t timesIWasSlowest = 0;
-            uint64_t numIterations = 0;
+            // uint64_t nsSumWork = 0;
+            // uint64_t nsSumWait = 0;
+            // uint64_t nsSumInsideMPI = 0;
+            // uint64_t nsSumOutsideMPI = 0;
+            // uint64_t timesIWasSlowest = 0;
+            // uint64_t numIterations = 0;
+            uint64_t nsSumMiniCheckpoints = 0;
+            uint64_t numMiniCheckpoints = 0;
+            uint64_t numRecoveries = 0;
+            uint64_t nsSumLostWork = 0;
+            uint64_t nsSumRecalculateAssignment = 0;
+            uint64_t nsSumReloadSites = 0;
+            uint64_t nsSumRestoreModels = 0;
         };
+        static const uint8_t OVERALL_STAT_COUNT = 7;
 
     private:
         unique_ptr<ostream> proFile = nullptr;

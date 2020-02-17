@@ -14,6 +14,7 @@ TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA&
                     std::function<PartitionAssignment()> redo_assignment_cb) :
                     redo_assignment_cb(redo_assignment_cb)
 {
+  init_profiler();
   init(opts, tree, parted_msa, tip_msa_idmap, part_assign, std::vector<uintVector>());
 }
 
@@ -22,7 +23,22 @@ TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA&
                     const PartitionAssignment& part_assign,
                     const std::vector<uintVector>& site_weights)
 {
+  init_profiler();
   init(opts, tree, parted_msa, tip_msa_idmap, part_assign, site_weights);
+}
+
+shared_ptr<ProfilerRegister> TreeInfo::_profiler_register = nullptr;
+void TreeInfo::init_profiler() {
+  if (_profiler_register !=  nullptr) {
+    // Profiler timers have already been initialized
+    return;
+  }
+
+  _profiler_register = ProfilerRegister::createInstance("recovery_timings.csv");
+  _profiler_register->registerProfiler("recalculate-assignment");
+  _profiler_register->registerProfiler("reload-sites");
+  _profiler_register->registerProfiler("restore-models");
+  _profiler_register->registerProfiler("mini-checkpoints");
 }
 
 void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
@@ -157,6 +173,11 @@ TreeInfo::~TreeInfo ()
     pll_utree_graph_destroy(_pll_treeinfo->root, NULL);
     pllmod_treeinfo_destroy(_pll_treeinfo);
   }
+
+  // TODO The Profiler should use ParallelContext to perform it's communications.
+  // We could then ask the profiler directly to save his stats. Also, only save
+  // overall stats if needed.
+  ParallelContext::saveProfilingData();
 }
 
 void TreeInfo::assert_lh_improvement(double old_lh, double new_lh, const std::string& where)
@@ -295,9 +316,20 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
 }
 
 void TreeInfo::update_to_new_assignment() {
-  auto part_assign = redo_assignment_cb();
-  reinit_partitions(part_assign);
+  assert(_profiler_register != nullptr);
+  auto recalculateAssignmentTimer = _profiler_register->getProfiler("recalculate-assignment");
+  auto reloadSitesTimer = _profiler_register->getProfiler("reload-sites");
+  auto restoreModelsTimer = _profiler_register->getProfiler("restore-models");
   
+  recalculateAssignmentTimer->startTimer();
+  auto part_assign = redo_assignment_cb();
+  recalculateAssignmentTimer->endTimer();
+
+  reloadSitesTimer->startTimer();
+  reinit_partitions(part_assign);
+  reloadSitesTimer->endTimer();
+  
+  restoreModelsTimer->startTimer();
   for (auto& m: CheckpointManager::all_models())
   {
     LOG_DEBUG << "Restoring model " << m.first << " to:" << endl;
@@ -308,10 +340,29 @@ void TreeInfo::update_to_new_assignment() {
       model(m.first, m.second);
     }
   }
+  restoreModelsTimer->endTimer();
+
+  _profiler_register->getStats()->numRecoveries++;
+  _profiler_register->getStats()->nsSumRecalculateAssignment += recalculateAssignmentTimer->getTimer();
+  _profiler_register->getStats()->nsSumReloadSites += reloadSitesTimer->getTimer();
+  _profiler_register->getStats()->nsSumRestoreModels += restoreModelsTimer->getTimer();
+  // Do not save the measured value to the histograms
+  recalculateAssignmentTimer->discardTimer();
+  reloadSitesTimer->discardTimer();
+  restoreModelsTimer->discardTimer();
 }
 
 void TreeInfo::mini_checkpoint() {
+  assert(_profiler_register != nullptr);
+  auto miniCheckpointTimer = _profiler_register->getProfiler("mini-checkpoints");
+  
+  miniCheckpointTimer->startTimer();
   CheckpointManager::update_models(*this);
+  miniCheckpointTimer->endTimer();
+
+  _profiler_register->getStats()->nsSumMiniCheckpoints += miniCheckpointTimer->getTimer();
+  _profiler_register->getStats()->numMiniCheckpoints++;
+  miniCheckpointTimer->discardTimer();
 }
 
 double TreeInfo::fault_tolerant_optimization(string parameter, const function<double()> optimizer) {
@@ -336,7 +387,8 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
       LOG_PROGR << "Restoration completed successfully." << endl;
 
       #ifndef NDEBUG
-      assert(beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
+      // This will fail for spr-round optimization
+      //assert(beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
       #endif
     }
   }
