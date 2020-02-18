@@ -79,7 +79,7 @@ public:
   static void thread_broadcast(size_t source_id, void * data, size_t size);
   void thread_send_master(size_t source_id, void * data, size_t size) const;
 
-  static void mpi_broadcast(void * data, size_t size);
+  static void mpi_broadcast(void * data, size_t size, int root = 0);
   template<typename T> static void mpi_broadcast(T& obj)
   {
     if (_num_ranks > 1)
@@ -98,10 +98,14 @@ public:
 
   static void log(std::string message);
 
-  static void global_master_broadcast(void * data, size_t size);
+  static void global_master_broadcast(void * data, size_t size, int root = 0);
   static void global_master_broadcast_custom(std::function<int(void*, int)> prepare_send_cb,
                                              std::function<void(void*,int)> process_recv_cb,
                                              size_t sizfeOfBuffer);
+
+  static void global_broadcast_custom(std::function<int(void*, int)> prepare_send_cb,
+                                      std::function<void(void*,int)> process_recv_cb,
+                                      size_t sizeOfBuffer, int root);
 
   static void mpi_gather_custom(std::function<int(void*,int)> prepare_send_cb,
                                 std::function<void(void*,int)> process_recv_cb);

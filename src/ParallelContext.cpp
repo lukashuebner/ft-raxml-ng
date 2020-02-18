@@ -580,11 +580,11 @@ void ParallelContext::thread_broadcast(size_t source_id, void * data, size_t siz
   global_thread_barrier();
 }
 
-void ParallelContext::mpi_broadcast(void * data, size_t size)
+void ParallelContext::mpi_broadcast(void * data, size_t size, int root)
 {
 #ifdef _RAXML_MPI
   if (_num_ranks > 1) {
-    fault_tolerant_mpi_call([&] () { return MPI_Bcast(data, size, MPI_BYTE, 0, _comm); });
+    fault_tolerant_mpi_call([&] () { return MPI_Bcast(data, size, MPI_BYTE, root, _comm); });
   }
 #else
   RAXML_UNUSED(data);
@@ -592,10 +592,10 @@ void ParallelContext::mpi_broadcast(void * data, size_t size)
 #endif
 }
 
-void ParallelContext::global_master_broadcast(void * data, size_t size)
+void ParallelContext::global_master_broadcast(void * data, size_t size, int root)
 {
   if (master_thread())
-    mpi_broadcast(data, size);
+    mpi_broadcast(data, size, root);
   global_thread_barrier();
   thread_broadcast(0, data, size);
 }
@@ -623,9 +623,9 @@ void ParallelContext::thread_send_master(size_t source_id, void * data, size_t s
   barrier();
 }
 
-void ParallelContext::global_master_broadcast_custom(std::function<int(void*, int)> prepare_send_cb,
-                                                     std::function<void(void*,int)> process_recv_cb,
-                                                     size_t sizeOfBuffer)
+void ParallelContext::global_broadcast_custom(std::function<int(void*, int)> prepare_send_cb,
+                                              std::function<void(void*,int)> process_recv_cb,
+                                              size_t sizeOfBuffer, int root)
 {
 #ifdef _RAXML_MPI
   /* we're gonna use _parallel_buf, so make sure other threads don't interfere... */
@@ -634,27 +634,34 @@ void ParallelContext::global_master_broadcast_custom(std::function<int(void*, in
   // Serialize objects (prepare_send_cb) and broadcast the size of the message so the receivers can allocate enough space
   size_t sizeOfMessage;
   std::vector<char> buffer;
-  if (master()) {
+  if (rank_id() == root) {
     buffer.reserve(sizeOfBuffer);
     sizeOfMessage = prepare_send_cb(buffer.data(), buffer.capacity());
   }
-  global_master_broadcast(&sizeOfMessage, sizeof(size_t));
+  global_master_broadcast(&sizeOfMessage, sizeof(size_t), root);
 
   // Reserve space on receivers and broadcast
-  if (!master()) {
+  if (rank_id() != root) {
     buffer.reserve(sizeOfMessage);
   }
   global_mpi_barrier();
-  global_master_broadcast(buffer.data(), sizeOfMessage);  
+  global_master_broadcast(buffer.data(), sizeOfMessage, root);  
 
   // Deserialize received objects (process_recv_cb)
-  if (!master()) {
+  if (rank_id() != root) {
     process_recv_cb(buffer.data(), sizeOfMessage);
   }
 #else
   RAXML_UNUSED(prepare_send_cb);
   RAXML_UNUSED(process_recv_cb);
 #endif
+}
+
+void ParallelContext::global_master_broadcast_custom(std::function<int(void*, int)> prepare_send_cb,
+                                                     std::function<void(void*,int)> process_recv_cb,
+                                                     size_t sizeOfBuffer)
+{
+  global_broadcast_custom(prepare_send_cb, process_recv_cb, sizeOfBuffer, 0);
 }
 
 void ParallelContext::mpi_gather_custom(std::function<int(void*,int)> prepare_send_cb,

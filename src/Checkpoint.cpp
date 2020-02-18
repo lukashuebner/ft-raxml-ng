@@ -205,14 +205,13 @@ const ModelMap& CheckpointManager::all_models() {
   return _all_models; 
 }
 
-// TODO: Merge functionality of this function and update_and_write() as well as gather_model_params()
 // TODO: Make fault-tolerant
 // Possible challenges:
 //   - Work since the previous checkpoint is lost -> caller has to recompute this
 //   - We'll need a mechanism to "atomically" enable the new checkpoint
 void CheckpointManager::update_models(const TreeInfo& treeinfo) {
   assert(_models_initialized);
-  IDSet modelIDs;
+  IDSet modelsToSend;
 
   ParallelContext::barrier();
 
@@ -226,25 +225,24 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
     ParallelContext::GroupLock lock;
 
     assign(_all_models[p], treeinfo, p);
-    modelIDs.insert(p);
+    modelsToSend.insert(p);
   }
 
   ParallelContext::barrier();
 
-  // TODO: Maybe some kind of AllToAll would be faster here
   if (ParallelContext::ranks_per_group() > 1) {
-    auto sender_cb = [&modelIDs](void * buf, size_t buf_size) -> int
+    auto serialize = [&modelsToSend](void * buf, size_t buf_size) -> int
       {
         BinaryStream bs((char*) buf, buf_size);
-        bs << modelIDs.size();
-        for (auto p: modelIDs)
+        bs << modelsToSend.size();
+        for (auto p: modelsToSend)
         {
           bs << p << _all_models.at(p);
         }
         return (int) bs.pos();
       };
 
-    auto receiver_cb = [&modelIDs](void * buf, size_t buf_size)
+    auto deserialize = [](void * buf, size_t buf_size)
       {
         BinaryStream bs((char*) buf, buf_size);
         auto model_count = bs.get<size_t>();
@@ -254,12 +252,14 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
           bs >> part_id;
 
           bs >> _all_models[part_id];
-          modelIDs.insert(part_id);
         }
       };
-
-    ParallelContext::mpi_gather_custom(sender_cb, receiver_cb);
-    ParallelContext::global_master_broadcast_custom(sender_cb, receiver_cb, sizeof(Model) * modelIDs.size());
+    
+    // ParallelContext::mpi_gather_custom(sender_cb, receiver_cb);
+    // ParallelContext::global_master_broadcast_custom(sender_cb, receiver_cb, sizeof(Model) * modelIDs.size());
+    for (size_t rank = 0; rank < ParallelContext::num_ranks(); rank++) {
+      ParallelContext::global_broadcast_custom(serialize, deserialize, sizeof(Model) * _all_models.size(), rank);
+    }
   }
 }
 
