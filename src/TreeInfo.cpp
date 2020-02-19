@@ -317,19 +317,13 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
 
 void TreeInfo::update_to_new_assignment() {
   assert(_profiler_register != nullptr);
-  auto recalculateAssignmentTimer = _profiler_register->getProfiler("recalculate-assignment");
-  auto reloadSitesTimer = _profiler_register->getProfiler("reload-sites");
   auto restoreModelsTimer = _profiler_register->getProfiler("restore-models");
   
-  recalculateAssignmentTimer->startTimer();
   auto part_assign = redo_assignment_cb();
-  recalculateAssignmentTimer->endTimer();
 
-  reloadSitesTimer->startTimer();
-  reinit_partitions(part_assign);
-  reloadSitesTimer->endTimer();
-  
   restoreModelsTimer->startTimer();
+  reinit_partitions(part_assign);
+  
   for (auto& m: CheckpointManager::all_models())
   {
     LOG_DEBUG << "Restoring model " << m.first << " to:" << endl;
@@ -343,12 +337,8 @@ void TreeInfo::update_to_new_assignment() {
   restoreModelsTimer->endTimer();
 
   _profiler_register->getStats()->numRecoveries++;
-  _profiler_register->getStats()->nsSumRecalculateAssignment += recalculateAssignmentTimer->getTimer();
-  _profiler_register->getStats()->nsSumReloadSites += reloadSitesTimer->getTimer();
   _profiler_register->getStats()->nsSumRestoreModels += restoreModelsTimer->getTimer();
   // Do not save the measured value to the histograms
-  recalculateAssignmentTimer->discardTimer();
-  reloadSitesTimer->discardTimer();
   restoreModelsTimer->discardTimer();
 }
 

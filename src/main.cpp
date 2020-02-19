@@ -2284,10 +2284,24 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
   unsigned int batch_id = (instance.done_ml_trees.size() / opts.bootstop_interval) + 1;
 
   auto redo_assignment_cb = [&instance] () {
-    LOG_DEBUG << "Rebalancing load:" << endl;
-    balance_load(instance, instance.load_balancer_cb);
+    auto profiler_register = ProfilerRegister::getInstance();
+    auto recalculateAssignmentTimer = profiler_register->getProfiler("recalculate-assignment");
+    auto reloadSitesTimer = profiler_register->getProfiler("reload-sites");
 
+    LOG_DEBUG << "Rebalancing load:" << endl;
+    recalculateAssignmentTimer->startTimer();
+    balance_load(instance, instance.load_balancer_cb);
+    recalculateAssignmentTimer->endTimer();
+
+    reloadSitesTimer->startTimer();
     load_assignment_data_for_this_rank(instance);
+    reloadSitesTimer->endTimer();
+
+    profiler_register->getStats()->nsSumRecalculateAssignment += recalculateAssignmentTimer->getTimer();
+    profiler_register->getStats()->nsSumReloadSites += reloadSitesTimer->getTimer();
+    
+    recalculateAssignmentTimer->discardTimer();
+    reloadSitesTimer->discardTimer();
 
     return instance.proc_part_assign.at(ParallelContext::local_proc_id());
   };
