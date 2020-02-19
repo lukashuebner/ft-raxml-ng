@@ -50,10 +50,8 @@ runtimeStats <- read_csv(
     dataset = col_character(),
     runtime = col_double()
   )) %>%
-  mutate(
-    sRuntime = runtime,
-    dataset = factor(dataset)
-  )
+  mutate(dataset = factor(dataset)) %>%
+  rename(sRuntime = runtime)
 
 overallStats$msPerMiniCheckpoint <- overallStats$nsSumMiniCheckpoints / overallStats$numMiniCheckpoints / 10^6
 
@@ -66,3 +64,4 @@ overallStatsSummary <- overallStats %>%
     sSumMiniCheckpoints = min(nsSumMiniCheckpoints) / 10^9)
 
 overallStatsSummary <- inner_join(by = "dataset", overallStatsSummary, runtimeStats)
+overallStatsSummary$fractionOfRuntime = overallStatsSummary$sSumMiniCheckpoints / overallStatsSummary$sRuntime
