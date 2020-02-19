@@ -2241,7 +2241,6 @@ void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
 
   LOG_DEBUG << "Loading MSA segments from RBA file " << instance.opts.msa_file << "..." << endl;
 
-  // TODO: This must be stored somewhere, right?
   RBAStream bs(instance.opts.binary_msa_file());
   bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
 }

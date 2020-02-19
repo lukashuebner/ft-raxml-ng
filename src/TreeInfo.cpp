@@ -594,7 +594,6 @@ void TreeInfo::set_topology_constraint(const Tree& cons_tree)
 void TreeInfo::compute_ancestral(const AncestralStatesSharedPtr& ancestral,
                                  const PartitionAssignment& part_assign)
 {
-  // TODO: failure mitigation
   pllmod_ancestral_t * pll_ancestral = pllmod_treeinfo_compute_ancestral(_pll_treeinfo);
 
   if (!pll_ancestral)
