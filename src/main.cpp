@@ -2268,9 +2268,6 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
       }
     };
 
-  /* get partitions assigned to the current thread */
-  auto const& part_assign = instance.proc_part_assign.at(ParallelContext::local_proc_id());
-
   if (opts.command == Command::evaluate)
   {
     LOG_INFO << "\nEvaluating " << opts.num_searches <<
@@ -2297,9 +2294,14 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 
   auto ckp_tree_index = instance.run_phase == RaxmlRunPhase::mlsearch ? checkp.tree_index : 0;
   ParallelContext::thread_barrier();
-  // TODO: Failure-mitigation for more than one starting tree?
   for (auto start_tree_num: worker.start_trees)
   {
+    /* get partitions assigned to the current thread 
+     * This has to happen inside this loop as the assignment may change if a failure occurred during
+     * a previous run when using multiple starting trees.
+     */
+    auto const& part_assign = instance.proc_part_assign.at(ParallelContext::local_proc_id());
+
     const auto& tree = instance.start_trees.at(start_tree_num-1);
     assert(!tree.empty());
 
@@ -2371,6 +2373,7 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
   // for ancestral states.
   if (opts.command == Command::ancestral)
   {
+    auto const& part_assign = instance.proc_part_assign.at(ParallelContext::local_proc_id());
     assert(!opts.use_pattern_compression);
     treeinfo->compute_ancestral(instance.ancestral_states, part_assign);
     ParallelContext::thread_barrier();
