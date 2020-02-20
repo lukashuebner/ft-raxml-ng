@@ -10,11 +10,11 @@ using namespace std;
 
 TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
                     const IDVector& tip_msa_idmap,
-                    const PartitionAssignment& part_assign,
-                    std::function<PartitionAssignment()> redo_assignment_cb) :
-                    redo_assignment_cb(redo_assignment_cb)
+                    std::function<PartitionAssignment()> calculate_assignment_cb) :
+                    redo_assignment_cb(calculate_assignment_cb)
 {
   init_profiler();
+  const PartitionAssignment& part_assign = calculate_assignment_cb();
   init(opts, tree, parted_msa, tip_msa_idmap, part_assign, std::vector<uintVector>());
 }
 
@@ -284,6 +284,7 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
                                                    PLLMOD_OPT_BRLEN_OPTIMIZE_ALL
                                                   );
     });
+    // Not needed?
     mini_checkpoint();
 
     LOG_DEBUG << "\t - after brlen: logLH = " << new_loglh << endl;

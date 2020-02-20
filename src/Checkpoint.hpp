@@ -98,8 +98,9 @@ public:
   void enable() { _active = true; }
   void disable() { _active = false; }
 
-  // TODO: Should this be in it's own class?
+  // TODO: Should this be in its own class?
   static void init_models(const ModelCRefMap& models);
+  static void set_model_masters(shared_ptr<IDVector> model_master_ranks);
   static void update_models(const TreeInfo& treeinfo);
   static const ModelMap& all_models();
 
@@ -128,6 +129,7 @@ private:
   SearchState _empty_search_state;
   static bool _models_initialized;
   static ModelMap _all_models;
+  static shared_ptr<IDVector> _model_master_ranks;
   static Tree _saved_tree;
 
   void gather_model_params();

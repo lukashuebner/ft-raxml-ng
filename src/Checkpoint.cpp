@@ -200,6 +200,11 @@ void CheckpointManager::init_models(const ModelCRefMap& models) {
   _models_initialized = true;
 }
 
+shared_ptr<IDVector> CheckpointManager::_model_master_ranks = nullptr;
+void CheckpointManager::set_model_masters(shared_ptr<IDVector> model_master_ranks) {
+  _model_master_ranks = model_master_ranks;
+}
+
 const ModelMap& CheckpointManager::all_models() {
   assert(_models_initialized);
   return _all_models; 
@@ -211,6 +216,7 @@ const ModelMap& CheckpointManager::all_models() {
 //   - We'll need a mechanism to "atomically" enable the new checkpoint
 void CheckpointManager::update_models(const TreeInfo& treeinfo) {
   assert(_models_initialized);
+  assert(_model_master_ranks != nullptr);
   IDSet modelsToSend;
 
   ParallelContext::barrier();
@@ -257,7 +263,7 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
     
     // ParallelContext::mpi_gather_custom(sender_cb, receiver_cb);
     // ParallelContext::global_master_broadcast_custom(sender_cb, receiver_cb, sizeof(Model) * modelIDs.size());
-    for (size_t rank = 0; rank < ParallelContext::num_ranks(); rank++) {
+    for (size_t rank: *_model_master_ranks) {
       ParallelContext::global_broadcast_custom(serialize, deserialize, sizeof(Model) * _all_models.size(), rank);
     }
   }

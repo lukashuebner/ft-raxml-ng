@@ -86,6 +86,11 @@ struct RaxmlInstance
   unique_ptr<LoadBalancer> load_balancer;
   unique_ptr<CoarseLoadBalancer> coarse_load_balancer;
 
+  // mini-checkpointing
+  // All the IDs of the rank which are the master of at least one model and therefore
+  // need to broadcast model parameters.
+  shared_ptr<IDVector> ranks_which_are_part_masters; 
+
   // bootstopping convergence test, only autoMRE is supported for now
   unique_ptr<BootstopCheckMRE> bootstop_checker;
   bool bs_converged;
@@ -2291,6 +2296,27 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
     LOG_DEBUG << "Rebalancing load:" << endl;
     recalculateAssignmentTimer->startTimer();
     balance_load(instance, instance.load_balancer_cb);
+    
+    assert(ParallelContext::rank_id(ParallelContext::proc_id()) == ParallelContext::rank_id());
+    assert(ParallelContext::num_procs() == instance.proc_part_assign.size());
+    if (instance.ranks_which_are_part_masters == nullptr) {
+      instance.ranks_which_are_part_masters = make_shared<IDVector>(ParallelContext::num_ranks());
+    } else {
+      instance.ranks_which_are_part_masters->clear();
+      instance.ranks_which_are_part_masters->reserve(ParallelContext::num_ranks());
+    }
+    for (size_t proc = 0; proc < ParallelContext::num_procs(); proc++) {
+      auto& assignment = instance.proc_part_assign.at(proc);
+      // assignment is the assignment to one processor
+      for (auto& range: assignment) {
+         // Is the processor this assignment belongs to master for this range?
+        if (range.master()) {
+          instance.ranks_which_are_part_masters->push_back(ParallelContext::rank_id(proc));
+          break; // Add each rank only once
+        }
+      }
+    }
+    CheckpointManager::set_model_masters(instance.ranks_which_are_part_masters);
     recalculateAssignmentTimer->endTimer();
 
     reloadSitesTimer->startTimer();
@@ -2310,30 +2336,20 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
   ParallelContext::thread_barrier();
   for (auto start_tree_num: worker.start_trees)
   {
-    /* get partitions assigned to the current thread 
-     * This has to happen inside this loop as the assignment may change if a failure occurred during
-     * a previous run when using multiple starting trees.
-     */
-    auto const& part_assign = instance.proc_part_assign.at(ParallelContext::local_proc_id());
-
     const auto& tree = instance.start_trees.at(start_tree_num-1);
     assert(!tree.empty());
 
     if (ckp_tree_index == start_tree_num)
     {
       // restore search state from checkpoint (tree + model params)
-      // TODO Do we need the part_assign parameter? Or could be computed using the redo_assignment_cb (probably)
-      treeinfo.reset(new TreeInfo(opts, checkp.tree, master_msa,
-                                  instance.tip_msa_idmap, part_assign,
-                                  redo_assignment_cb));
+      treeinfo.reset(new TreeInfo(opts, checkp.tree, master_msa, instance.tip_msa_idmap, redo_assignment_cb));
       assign_models(*treeinfo, checkp);
     }
     else
     {
       if (ParallelContext::group_master_thread())
         checkp.tree_index = start_tree_num;
-      treeinfo.reset(new TreeInfo(opts, tree, master_msa, instance.tip_msa_idmap,
-                                  part_assign, redo_assignment_cb));
+      treeinfo.reset(new TreeInfo(opts, tree, master_msa, instance.tip_msa_idmap, redo_assignment_cb));
     }
 
     treeinfo->set_topology_constraint(instance.constraint_tree);
