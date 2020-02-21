@@ -10,11 +10,11 @@ using namespace std;
 
 TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
                     const IDVector& tip_msa_idmap,
+                    const PartitionAssignment& part_assign,
                     std::function<PartitionAssignment()> calculate_assignment_cb) :
                     redo_assignment_cb(calculate_assignment_cb)
 {
   init_profiler();
-  const PartitionAssignment& part_assign = calculate_assignment_cb();
   init(opts, tree, parted_msa, tip_msa_idmap, part_assign, std::vector<uintVector>());
 }
 
@@ -332,10 +332,10 @@ void TreeInfo::update_to_new_assignment() {
   }
   restoreModelsTimer->endTimer();
 
-  _profiler_register->getStats()->numRecoveries++;
   _profiler_register->getStats()->nsSumRestoreModels += restoreModelsTimer->getTimer();
   // Do not save the measured value to the histograms
   restoreModelsTimer->discardTimer();
+  _profiler_register->getStats()->numRecoveries++;
 }
 
 void TreeInfo::mini_checkpoint() {

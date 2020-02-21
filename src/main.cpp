@@ -2288,15 +2288,7 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 
   unsigned int batch_id = (instance.done_ml_trees.size() / opts.bootstop_interval) + 1;
 
-  auto redo_assignment_cb = [&instance] () {
-    auto profiler_register = ProfilerRegister::getInstance();
-    auto recalculateAssignmentTimer = profiler_register->getProfiler("recalculate-assignment");
-    auto reloadSitesTimer = profiler_register->getProfiler("reload-sites");
-
-    LOG_DEBUG << "Rebalancing load:" << endl;
-    recalculateAssignmentTimer->startTimer();
-    balance_load(instance, instance.load_balancer_cb);
-    
+  auto compute_part_masters = [&instance]() {
     assert(ParallelContext::rank_id(ParallelContext::proc_id()) == ParallelContext::rank_id());
     assert(ParallelContext::num_procs() == instance.proc_part_assign.size());
     if (instance.ranks_which_are_part_masters == nullptr) {
@@ -2307,16 +2299,31 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
     }
     for (size_t proc = 0; proc < ParallelContext::num_procs(); proc++) {
       auto& assignment = instance.proc_part_assign.at(proc);
-      // assignment is the assignment to one processor
+      // assignment is the assignment to one PE (rank or thread)
       for (auto& range: assignment) {
          // Is the processor this assignment belongs to master for this range?
         if (range.master()) {
-          instance.ranks_which_are_part_masters->push_back(ParallelContext::rank_id(proc));
-          break; // Add each rank only once
+          size_t rank_id = ParallelContext::rank_id(proc);
+          // Add each rank only once
+          if (instance.ranks_which_are_part_masters->back() != rank_id) {
+            instance.ranks_which_are_part_masters->push_back(rank_id);
+          }
+          break;
         }
       }
     }
     CheckpointManager::set_model_masters(instance.ranks_which_are_part_masters);
+  };
+
+  auto redo_assignment_cb = [&instance, &compute_part_masters] () {
+    auto profiler_register = ProfilerRegister::getInstance();
+    auto recalculateAssignmentTimer = profiler_register->getProfiler("recalculate-assignment");
+    auto reloadSitesTimer = profiler_register->getProfiler("reload-sites");
+
+    LOG_DEBUG << "Rebalancing load:" << endl;
+    recalculateAssignmentTimer->startTimer();
+    balance_load(instance, instance.load_balancer_cb);
+    compute_part_masters();
     recalculateAssignmentTimer->endTimer();
 
     reloadSitesTimer->startTimer();
@@ -2336,20 +2343,27 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
   ParallelContext::thread_barrier();
   for (auto start_tree_num: worker.start_trees)
   {
+    // Do this inside this loop as a node failure may have caused a reassignment
+    auto const& part_assign = instance.proc_part_assign.at(ParallelContext::proc_id());
+    compute_part_masters();
+
     const auto& tree = instance.start_trees.at(start_tree_num-1);
     assert(!tree.empty());
 
     if (ckp_tree_index == start_tree_num)
     {
       // restore search state from checkpoint (tree + model params)
-      treeinfo.reset(new TreeInfo(opts, checkp.tree, master_msa, instance.tip_msa_idmap, redo_assignment_cb));
+      treeinfo.reset(new TreeInfo(opts, checkp.tree, master_msa,
+                                  instance.tip_msa_idmap, part_assign,
+                                  redo_assignment_cb));
       assign_models(*treeinfo, checkp);
     }
     else
     {
       if (ParallelContext::group_master_thread())
         checkp.tree_index = start_tree_num;
-      treeinfo.reset(new TreeInfo(opts, tree, master_msa, instance.tip_msa_idmap, redo_assignment_cb));
+      treeinfo.reset(new TreeInfo(opts, tree, master_msa, instance.tip_msa_idmap,
+                                  part_assign, redo_assignment_cb));
     }
 
     treeinfo->set_topology_constraint(instance.constraint_tree);
