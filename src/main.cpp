@@ -2687,6 +2687,11 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
 
 int clean_exit(int retval)
 {
+  // TODO The Profiler should use ParallelContext to perform it's communications.
+  // We could then ask the profiler directly to save his stats. Also, only save
+  // overall stats if needed.
+  ParallelContext::saveProfilingData();
+
   // We have checked for rank failures after finishing our computations, we therefore can ignore
   // all futher rank failures, as they won't influence the result.
   try {

@@ -173,11 +173,6 @@ TreeInfo::~TreeInfo ()
     pll_utree_graph_destroy(_pll_treeinfo->root, NULL);
     pllmod_treeinfo_destroy(_pll_treeinfo);
   }
-
-  // TODO The Profiler should use ParallelContext to perform it's communications.
-  // We could then ask the profiler directly to save his stats. Also, only save
-  // overall stats if needed.
-  ParallelContext::saveProfilingData();
 }
 
 void TreeInfo::assert_lh_improvement(double old_lh, double new_lh, const std::string& where)
