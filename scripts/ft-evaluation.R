@@ -61,7 +61,7 @@ overallStatsSummary <- overallStats %>%
     avg_msPerMiniCheckpoint = mean(msPerMiniCheckpoint),
     stddev_msPerMiniCheckpoint = sd(msPerMiniCheckpoint),
     numMiniCheckpoints = min(numMiniCheckpoints),
-    sSumMiniCheckpoints = min(nsSumMiniCheckpoints) / 10^9)
+    sSumMiniCheckpoints = max(nsSumMiniCheckpoints) / 10^9)
 
 overallStatsSummary <- inner_join(by = "dataset", overallStatsSummary, runtimeStats)
 overallStatsSummary$fractionOfRuntime = overallStatsSummary$sSumMiniCheckpoints / overallStatsSummary$sRuntime
