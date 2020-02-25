@@ -105,7 +105,7 @@ public:
 
   static void global_broadcast_custom(std::function<int(void*, int)> prepare_send_cb,
                                       std::function<void(void*,int)> process_recv_cb,
-                                      size_t sizeOfBuffer, int root);
+                                      size_t sizeOfBuffer, size_t root);
 
   static void mpi_gather_custom(std::function<int(void*,int)> prepare_send_cb,
                                 std::function<void(void*,int)> process_recv_cb);

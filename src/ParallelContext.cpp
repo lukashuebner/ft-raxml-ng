@@ -625,7 +625,7 @@ void ParallelContext::thread_send_master(size_t source_id, void * data, size_t s
 
 void ParallelContext::global_broadcast_custom(std::function<int(void*, int)> prepare_send_cb,
                                               std::function<void(void*,int)> process_recv_cb,
-                                              size_t sizeOfBuffer, int root)
+                                              size_t sizeOfBuffer, size_t root)
 {
 #ifdef _RAXML_MPI
   /* we're gonna use _parallel_buf, so make sure other threads don't interfere... */
