@@ -29,16 +29,8 @@ TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA&
 
 shared_ptr<ProfilerRegister> TreeInfo::_profiler_register = nullptr;
 void TreeInfo::init_profiler() {
-  if (_profiler_register !=  nullptr) {
-    // Profiler timers have already been initialized
-    return;
-  }
-
-  _profiler_register = ProfilerRegister::createInstance("recovery_timings.csv");
-  _profiler_register->registerProfiler("recalculate-assignment");
-  _profiler_register->registerProfiler("reload-sites");
-  _profiler_register->registerProfiler("restore-models");
-  _profiler_register->registerProfiler("mini-checkpoints");
+  _profiler_register = ProfilerRegister::getInstance();
+  assert(_profiler_register != nullptr);
 }
 
 void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,

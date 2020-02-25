@@ -2701,11 +2701,6 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
 
 int clean_exit(int retval)
 {
-  // TODO The Profiler should use ParallelContext to perform it's communications.
-  // We could then ask the profiler directly to save his stats. Also, only save
-  // overall stats if needed.
-  ParallelContext::saveProfilingData();
-
   // We have checked for rank failures after finishing our computations, we therefore can ignore
   // all futher rank failures, as they won't influence the result.
   try {
@@ -2864,6 +2859,12 @@ int internal_main(int argc, char** argv, void* comm)
                                                        std::ref(instance),
                                                        std::ref(cm)));
 
+        auto profiler_register = ProfilerRegister::createInstance("recovery_timings.csv");
+        profiler_register->registerProfiler("recalculate-assignment");
+        profiler_register->registerProfiler("reload-sites");
+        profiler_register->registerProfiler("restore-models");
+        profiler_register->registerProfiler("mini-checkpoints");
+
         while (42) {
           try {
             master_main(instance, cm);
@@ -2883,6 +2884,7 @@ int internal_main(int argc, char** argv, void* comm)
             break;
           }
         }
+        ParallelContext::saveProfilingData();
         break;
       }
       case Command::support:
