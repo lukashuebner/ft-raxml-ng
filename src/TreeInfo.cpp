@@ -341,6 +341,8 @@ void TreeInfo::mini_checkpoint() {
   _profiler_register->getStats()->nsSumMiniCheckpoints += miniCheckpointTimer->getTimer();
   _profiler_register->getStats()->numMiniCheckpoints++;
   miniCheckpointTimer->discardTimer();
+  update_to_new_assignment();
+  ParallelContext::saveProfilingData();
 }
 
 double TreeInfo::fault_tolerant_optimization(string parameter, const function<double()> optimizer) {
@@ -406,7 +408,6 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 
     CheckpointManager::update_models(*this);
   }
-
   /* optimize BASE FREQS */
   if (params_to_optimize & PLLMOD_OPT_PARAM_FREQUENCIES)
   {
