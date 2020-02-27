@@ -190,6 +190,7 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
     _num_ranks = (size_t)numRanks;
     _rank_id = (size_t)rankId;
     detect_num_nodes();
+    log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
     throw RankFailureException();
   }
 }
