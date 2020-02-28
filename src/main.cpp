@@ -2305,7 +2305,8 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
         if (range.master()) {
           size_t rank_id = ParallelContext::rank_id(proc);
           // Add each rank only once
-          if (instance.ranks_which_are_part_masters->back() != rank_id) {
+          if (instance.ranks_which_are_part_masters->empty() ||
+              instance.ranks_which_are_part_masters->back() != rank_id) {
             instance.ranks_which_are_part_masters->push_back(rank_id);
           }
           break;
