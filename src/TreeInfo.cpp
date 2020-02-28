@@ -62,23 +62,48 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
 }
 
 void TreeInfo::reinit_partitions(const PartitionAssignment& part_assign) {
-  Tree tree(*_pll_treeinfo->tree);
+  Tree tree;
+  assert(_profiler_register != nullptr);
+  _profiler_register->profileFunction([&]() {
+    tree = Tree(*_pll_treeinfo->tree);
+  }, "CreateTree");
 
   // TODO: Maybe we can reuse some parts of the treeinfo structure? For this, we need to update
   // the tree in the treeinfo structure.
   // If you try: Check for bug in case of node failure before alpha optimization
-  pllmod_treeinfo_reset_partitions(_pll_treeinfo);
-  pll_utree_graph_destroy(_pll_treeinfo->root, NULL);
-  pllmod_treeinfo_destroy(_pll_treeinfo);
 
-  init(partition_reinit_info->opts,
+  _profiler_register->profileFunction([&]() {
+    for (unsigned int i = 0; i < _pll_treeinfo->partition_count; ++i)
+    {
+      if (_pll_treeinfo->partitions[i])
+        pll_partition_destroy(_pll_treeinfo->partitions[i]);
+    }
+  }, "DestroyPartitions");
+
+  _profiler_register->profileFunction([&]() {
+    pllmod_treeinfo_reset_partitions(_pll_treeinfo);
+  }, "TreeinfoResetPartitions");
+
+  _profiler_register->profileFunction([&]() {
+    pll_utree_graph_destroy(_pll_treeinfo->root, NULL);
+  }, "UTreeGraphDestroy");
+
+  _profiler_register->profileFunction([&]() {
+    pllmod_treeinfo_destroy(_pll_treeinfo);
+  }, "TreeinfoDestroy");
+
+  _profiler_register->profileFunction([&]() {
+    init(partition_reinit_info->opts,
                   tree,
                   partition_reinit_info->parted_msa,
                   partition_reinit_info->tip_msa_idmap,
                   part_assign,
                   partition_reinit_info->site_weights);
+  }, "TreeinfoInit");
 
-  pllmod_treeinfo_update_partials_and_clvs(_pll_treeinfo);
+  _profiler_register->profileFunction([&]() {
+    pllmod_treeinfo_update_partials_and_clvs(_pll_treeinfo);
+  }, "TreeinfoUpdatePartialsAndCLVs");
   
   LOG_DEBUG << "Restored the following tree:" << endl;
   LOG_DEBUG << to_newick_string_rooted(tree, 0) << endl;
@@ -305,44 +330,37 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
 
 void TreeInfo::update_to_new_assignment() {
   assert(_profiler_register != nullptr);
-  auto restoreModelsTimer = _profiler_register->getProfiler("restore-models");
-  
-  auto part_assign = redo_assignment_cb();
 
-  restoreModelsTimer->startTimer();
+  PartitionAssignment part_assign;
+  _profiler_register->profileFunction([&]() {
+    part_assign = redo_assignment_cb();
+  }, "RedoPartitionAssignment");
+
   reinit_partitions(part_assign);
-  
-  for (auto& m: CheckpointManager::all_models())
-  {
-    LOG_DEBUG << "Restoring model " << m.first << " to:" << endl;
-    LOG_DEBUG << m.second << endl;
 
-    // Locally restore the model, if we have a partition with this model assigned
-    if (_pll_treeinfo->partitions[m.first]) {
-      model(m.first, m.second);
+  _profiler_register->profileFunction([&]() {  
+    for (auto& m: CheckpointManager::all_models())
+    {
+      LOG_DEBUG << "Restoring model " << m.first << " to:" << endl;
+      LOG_DEBUG << m.second << endl;
+
+      // Locally restore the model, if we have a partition with this model assigned
+      if (_pll_treeinfo->partitions[m.first]) {
+        model(m.first, m.second);
+      }
     }
-  }
-  restoreModelsTimer->endTimer();
-
-  _profiler_register->getStats()->nsSumRestoreModels += restoreModelsTimer->getTimer();
-  // Do not save the measured value to the histograms
-  restoreModelsTimer->discardTimer();
-  _profiler_register->getStats()->numRecoveries++;
+  }, "RestoreModels");
 }
 
 void TreeInfo::mini_checkpoint() {
   assert(_profiler_register != nullptr);
-  auto miniCheckpointTimer = _profiler_register->getProfiler("mini-checkpoints");
   
-  miniCheckpointTimer->startTimer();
-  CheckpointManager::update_models(*this);
-  miniCheckpointTimer->endTimer();
+  _profiler_register->profileFunction([&]() {
+    CheckpointManager::update_models(*this);
+  }, "MiniCheckpoint");
 
-  _profiler_register->getStats()->nsSumMiniCheckpoints += miniCheckpointTimer->getTimer();
-  _profiler_register->getStats()->numMiniCheckpoints++;
-  miniCheckpointTimer->discardTimer();
   update_to_new_assignment();
-  ParallelContext::saveProfilingData();
+  //_profiler_register->writeStats(ParallelContext::rankToProcessorName);
 }
 
 double TreeInfo::fault_tolerant_optimization(string parameter, const function<double()> optimizer) {

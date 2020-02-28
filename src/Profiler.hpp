@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <map>
+#include <functional>
 
 using namespace std;
 
@@ -52,7 +53,6 @@ class FractionalProfiler {
                                                      string (*rankToProcessorName) (size_t), int secondsPassed);
         static unique_ptr<ostream> writeCallsPerSecondsHeader(unique_ptr<ostream> file);
         static unique_ptr<ostream> writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file);
-        static unique_ptr<ostream> writeOverallStats(shared_ptr<vector<uint64_t>> allStatsVec, string (*rankToProcessorName) (size_t), unique_ptr<ostream> file);
         
         float eventsPerSecond() const;
         float secondsPassed() const;
@@ -61,42 +61,36 @@ class FractionalProfiler {
 
 class ProfilerRegister {
     public:
-        struct ProfilerStats {
-            // uint64_t nsSumWork = 0;
-            // uint64_t nsSumWait = 0;
-            // uint64_t nsSumInsideMPI = 0;
-            // uint64_t nsSumOutsideMPI = 0;
-            // uint64_t timesIWasSlowest = 0;
-            // uint64_t numIterations = 0;
-            uint64_t nsSumMiniCheckpoints = 0;
-            uint64_t numMiniCheckpoints = 0;
-            uint64_t numRecoveries = 0;
-            uint64_t nsSumLostWork = 0;
-            uint64_t nsSumRecalculateAssignment = 0;
-            uint64_t nsSumReloadSites = 0;
-            uint64_t nsSumRestoreModels = 0;
+        struct Measurement {
+            uint64_t nsSum;
+            uint64_t count;
+            Measurement() : nsSum(0), count(0) {};
         };
-        static const uint8_t OVERALL_STAT_COUNT = 7;
 
-    private:
-        unique_ptr<ostream> proFile = nullptr;
-        unique_ptr<ostream> callsPerSecondFile = nullptr;
-        shared_ptr<map<string, shared_ptr<FractionalProfiler>>> profilers = nullptr;
-        shared_ptr<ProfilerStats> stats = nullptr;
-        void createProFile(string path);
-        
-        ProfilerRegister(string logFile);
-        static shared_ptr<ProfilerRegister> singleton;
-        string overallStatsFilename = "";
-
-    public:
         static shared_ptr<ProfilerRegister> getInstance();
         static shared_ptr<ProfilerRegister> createInstance(string logFile);
         ProfilerRegister() = delete;
 
-        shared_ptr<ProfilerStats> getStats();
+        void profileFunction(function<void()> func, string key);
+        shared_ptr<map<string, Measurement>> getStats();
 
         shared_ptr<FractionalProfiler> registerProfiler(string name);
         shared_ptr<FractionalProfiler> getProfiler(string name) const;
         void saveProfilingData(bool master, size_t num_ranks, string (*rankToProcessorName) (size_t), MPI_Comm comm);
+        void writeStats(string (*rankToProcessorName) (size_t));
+
+     private:
+        unique_ptr<ostream> proFile = nullptr;
+        unique_ptr<ostream> callsPerSecondFile = nullptr;
+        string overallStatsFilename = ""; // The file is overwritten on every write
+        shared_ptr<map<string, shared_ptr<FractionalProfiler>>> profilers = nullptr;
+        shared_ptr<map<string, Measurement>> stats = nullptr;
+        void createProFile(string path);
+        
+        ProfilerRegister(string logFile);
+        static shared_ptr<ProfilerRegister> singleton;
+
+        unique_ptr<ostream> writeStatsHeader(unique_ptr<ostream> file);
 };
+
+#define PROFILE(code, name) ProfilerRegister::getInstance()->profileFunction(()[] { code },  name);

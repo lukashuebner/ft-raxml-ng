@@ -271,6 +271,8 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
 
 void CheckpointManager::update_and_write(const TreeInfo& treeinfo)
 {
+  ProfilerRegister::getInstance()->writeStats(ParallelContext::rankToProcessorName);
+
   if (ParallelContext::master_thread())
     _updated_models.clear();
 

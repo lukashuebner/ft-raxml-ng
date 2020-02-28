@@ -31,6 +31,7 @@ MutexType ParallelContext::mtx;
 vector<string> ParallelContext::_rankToProcessorName = vector<string>();
 
 string ParallelContext::rankToProcessorName(size_t rank) {
+  assert(master());
   assert(rank < ParallelContext::_rankToProcessorName.size());
   return ParallelContext::_rankToProcessorName.at(rank);
 }
@@ -99,7 +100,6 @@ void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
     MPI_Comm_size(_comm, &tmp);
     _num_ranks = (size_t) tmp;
 //    printf("size: %lu, rank: %lu\n", _num_ranks, _rank_id);
-
   detect_num_nodes();
 //    printf("nodes: %lu\n", _num_nodes);
 
@@ -285,11 +285,13 @@ void ParallelContext::detect_num_nodes()
     int len;
     char name[MPI_MAX_PROCESSOR_NAME];
     unordered_set<string> node_names;
+    _rankToProcessorName.clear();
 
     MPI_Get_processor_name(name, &len);
 
 //    printf("\n hostname: %s,  len; %d\n", name, len);
 
+    log("(Re)populating node names");
     node_names.insert(name);
     ParallelContext::_rankToProcessorName.push_back(name);
 
@@ -323,8 +325,10 @@ void ParallelContext::detect_num_nodes()
       // If this fails, we can ignore it, as this function (detect_num_nodes) will be called by the error handler
     }
   }
-  else
+  else {
+    _rankToProcessorName.push_back("localhost");
     _num_nodes = 1;
+  }
 #else
   _num_nodes = 1;
 #endif

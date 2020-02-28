@@ -2318,24 +2318,19 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 
   auto redo_assignment_cb = [&instance, &compute_part_masters] () {
     auto profiler_register = ProfilerRegister::getInstance();
-    auto recalculateAssignmentTimer = profiler_register->getProfiler("recalculate-assignment");
-    auto reloadSitesTimer = profiler_register->getProfiler("reload-sites");
 
     LOG_DEBUG << "Rebalancing load:" << endl;
-    recalculateAssignmentTimer->startTimer();
-    balance_load(instance, instance.load_balancer_cb);
-    compute_part_masters();
-    recalculateAssignmentTimer->endTimer();
+    profiler_register->profileFunction([&]() {
+      balance_load(instance, instance.load_balancer_cb);
+    }, "BalanceLoad");
 
-    reloadSitesTimer->startTimer();
-    load_assignment_data_for_this_rank(instance);
-    reloadSitesTimer->endTimer();
+    profiler_register->profileFunction([&]() {
+      compute_part_masters();
+    }, "ComputePartPasters");
 
-    profiler_register->getStats()->nsSumRecalculateAssignment += recalculateAssignmentTimer->getTimer();
-    profiler_register->getStats()->nsSumReloadSites += reloadSitesTimer->getTimer();
-    
-    recalculateAssignmentTimer->discardTimer();
-    reloadSitesTimer->discardTimer();
+    profiler_register->profileFunction([&]() {
+      load_assignment_data_for_this_rank(instance);
+    }, "LoadAssignmentData");
 
     return instance.proc_part_assign.at(ParallelContext::local_proc_id());
   };
@@ -2885,7 +2880,7 @@ int internal_main(int argc, char** argv, void* comm)
             break;
           }
         }
-        ParallelContext::saveProfilingData();
+        ProfilerRegister::getInstance()->writeStats(ParallelContext::rankToProcessorName);
         break;
       }
       case Command::support:

@@ -12,6 +12,8 @@
 #include <sstream>
 
 #include "Profiler.hpp"
+#include "io/binary_io.hpp"
+//#include "io/file_io.hpp"
 
 using namespace std;
 
@@ -279,7 +281,7 @@ float FractionalProfiler::secondsPassed() const {
 ProfilerRegister::ProfilerRegister(string prefix) {
     createProFile(prefix);
     profilers = make_shared<map<string, shared_ptr<FractionalProfiler>>>();
-    stats = make_shared<ProfilerStats>();
+    stats = make_shared<map<string, Measurement>>();
 
     assert(profilers != nullptr);
     assert(stats != nullptr);
@@ -338,6 +340,20 @@ shared_ptr<ProfilerRegister> ProfilerRegister::createInstance(string logFile) {
     return singleton;
 }
 
+void ProfilerRegister::profileFunction(function<void()> func, string key) {
+    auto start = chrono::high_resolution_clock::now();
+    func();
+    auto end = chrono::high_resolution_clock::now();
+    uint64_t callDuration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
+
+    if (stats->find(key) == stats->end()) {
+        stats->insert({ key, Measurement() });
+    }
+
+    stats->at(key).count++;
+    stats->at(key).nsSum += callDuration; 
+}
+
 void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (*rankToProcessorName) (size_t), MPI_Comm comm) {
     // Save the time passed once so it will be the same for all measurements collected during one call to this function
     int secondsPassed = profilers->begin()->second->secondsPassed();
@@ -368,36 +384,6 @@ void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (
         }
     }
 
-    // Second, gather all profiler stats
-    // Arrange profiler stats data
-    auto profilerStats = ProfilerRegister::getInstance()->getStats();
-    vector<uint64_t> statsVec = {
-        // profilerStats->nsSumInsideMPI,
-        // profilerStats->nsSumOutsideMPI,
-        // profilerStats->nsSumWait,
-        // profilerStats->nsSumWork,
-        // profilerStats->numIterations,
-        // profilerStats->timesIWasSlowest
-        profilerStats->nsSumMiniCheckpoints,
-        profilerStats->numMiniCheckpoints,
-        profilerStats->numRecoveries,
-        profilerStats->nsSumLostWork,
-        profilerStats->nsSumRecalculateAssignment,
-        profilerStats->nsSumReloadSites,
-        profilerStats->nsSumRestoreModels
-    };
-
-    if (master) {
-        auto allStatsVec = make_shared<vector<uint64_t>>(num_ranks * statsVec.size());
-        MPI_Gather(statsVec.data(), statsVec.size(), MPI_UINT64_T,
-            allStatsVec->data(), statsVec.size(), MPI_UINT64_T, 0, comm);
-
-        ofstream* overallStatsFile = new ofstream(overallStatsFilename, ofstream::out | ofstream::trunc);
-        FractionalProfiler::writeOverallStats(allStatsVec, rankToProcessorName, move(unique_ptr<ostream>(overallStatsFile)));
-    } else {
-        MPI_Gather(statsVec.data(), statsVec.size(), MPI_UINT64_T,
-                nullptr, 0, MPI_UINT64_T, 0, comm);
-    }
 }
 
 unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsHeader(unique_ptr<ostream> file) {
@@ -422,26 +408,76 @@ unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsStats(string timer, 
     return file;
 }
 
-unique_ptr<ostream> FractionalProfiler::writeOverallStats(shared_ptr<vector<uint64_t>> allStatsVec, string (*rankToProcessorName) (size_t), unique_ptr<ostream> file) {
-    assert(allStatsVec->size() % ProfilerRegister::OVERALL_STAT_COUNT == 0);
-    size_t numRanks = allStatsVec->size() / ProfilerRegister::OVERALL_STAT_COUNT;
-    // See saveProfilingData(...) for order of fields
-    //*file << "rank,processor,nsSumInsideMPI,nsSumOutsideMPI,nsSumWait,nsSumWork,numIterations,timesIWasSlowest" << endl;
-    *file << "rank,processor,nsSumMiniCheckpoints,numMiniCheckpoints,numRecoveries,nsSumLostWork,nsSumRecalculateAssignment,nsSumReloadSites,nsSumRestoreModels" << endl;
-    for (size_t rank = 0; rank < numRanks; rank++) {
-        size_t base = rank * ProfilerRegister::OVERALL_STAT_COUNT;
-        *file << rank << ",";
-        *file << (*rankToProcessorName)(rank) << ",";
-        for (uint8_t i = 0; i < ProfilerRegister::OVERALL_STAT_COUNT; i++) {
-            *file << to_string((*allStatsVec)[base + i]);
-            if (i != ProfilerRegister::OVERALL_STAT_COUNT - 1) {
-                *file << ",";
-            }
-        }
-        *file << endl;
+unique_ptr<ostream> ProfilerRegister::writeStatsHeader(unique_ptr<ostream> file) {
+    assert(*file);
+
+    *file << "rank,processor,";
+    auto stats = getStats();
+
+    size_t field = 0;
+    for (auto& stat: *stats) {
+        *file << "num" << stat.first << ",nsSum" << stat.first << (field != stats->size() - 1 ? "," : "\n");
+        field++;
     }
 
     return file;
+}
+
+void ProfilerRegister::writeStats(string (*rankToProcessorName) (size_t)) {
+    unique_ptr<ostream> file;
+
+    // Iterating over a std::map is actually sorted by key -> We will always collect the correct timing data
+    if (ParallelContext::master()) {
+        assert(overallStatsFilename != "");
+        file = unique_ptr<ostream>(new ofstream(overallStatsFilename));
+
+        file = writeStatsHeader(move(file));
+        assert(*file);
+
+        auto myRankId = ParallelContext::rank_id();
+        // ParallelContext::mpi_gather_custom does not send this ranks data to itself
+        *file << myRankId << "," << rankToProcessorName(myRankId) << ",";
+        size_t statId = 0;
+        auto stats = getStats();
+        for (auto& stat: *stats) {
+            *file << stat.second.count << "," << stat.second.nsSum << (statId != stats->size() - 1 ? "," : "\n");
+            statId++;
+        }
+    }
+
+    // Gather data from all ranks and save to file
+    auto stats = getStats();
+    auto prepare_send_cb = [&stats](void * buf, size_t buf_size) -> int
+    {
+        assert(!ParallelContext::master());
+        BinaryStream bs((char*) buf, buf_size);
+        bs << ParallelContext::rank_id();
+        bs << stats->size();
+        for (auto& stat: *stats) {
+            bs << stat.second.count;
+            bs << stat.second.nsSum;
+        }
+        return (int) bs.pos();
+    };
+
+    auto process_recv_cb = [&stats, &file, &rankToProcessorName](void * buf, size_t buf_size)
+    {
+        assert(ParallelContext::master());
+        BinaryStream bs((char*) buf, buf_size);
+        auto rankId = bs.get<size_t>();
+        auto numberOfStats = bs.get<size_t>();
+        assert(numberOfStats == stats->size()); // The same number of stats have been collected on all ranks
+
+        assert(*file);
+        *file << rankId << "," << rankToProcessorName(rankId) << ",";
+        for (uint64_t statId = 0; statId < numberOfStats; statId++) {
+            auto count = bs.get<size_t>();
+            auto nsSum = bs.get<size_t>();
+            *file << count << "," << nsSum << (statId != numberOfStats - 1 ? "," : "\n");
+        }
+    };
+
+    ParallelContext::mpi_gather_custom(prepare_send_cb, process_recv_cb);
 }
 
 const string FractionalProfiler::FractionalHistogram::binName(uint16_t bin) {
@@ -467,7 +503,7 @@ const string FractionalProfiler::FractionalHistogram::binName(uint16_t bin) {
     } 
 }
 
-shared_ptr<ProfilerRegister::ProfilerStats> ProfilerRegister::getStats() {
+shared_ptr<map<string, ProfilerRegister::Measurement>> ProfilerRegister::getStats() {
     assert(stats != nullptr);
     return stats;
 }
