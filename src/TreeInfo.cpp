@@ -549,7 +549,6 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
   {
     // Branch optimization has it's own failure mitigation
     new_loglh = optimize_branches(lh_epsilon, 0.25);
-    mini_checkpoint();
 
     assert_lh_improvement(cur_loglh, new_loglh, "BRLEN");
     cur_loglh = new_loglh;
