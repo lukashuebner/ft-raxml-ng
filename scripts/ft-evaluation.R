@@ -3,6 +3,7 @@ library(dplyr)
 library(purrr)
 library(readr)
 library(stringr)
+library(tidyr)
 
 dataDir <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/ft-evaluation"
 
@@ -19,17 +20,12 @@ dataset2Label <- function(s) {
 ### Data loading ###
 # load profiling data from single csv file and add `dataset` column
 readFile <- function(flnm) {
-  read_csv(flnm, col_types = cols(
-    rank = col_integer(),
-    processor = col_character(),
-    numMiniCheckpoints = col_integer(),
-    numRecoveries = col_integer(),
-    # uin64_t might be to large for col_integer()
-    nsSumMiniCheckpoints = col_double(),
-    nsSumLostWork = col_double(),
-    nsSumRecalculateAssignment = col_double(),
-    nsSumReloadSites = col_double(),
-    nsSumRestoreModels = col_double()
+  read_csv(
+    flnm,
+    col_types = 
+      cols(
+        .default = col_double(),
+        processor = col_character()
     )) %>%
     mutate(dataset = str_extract(flnm, "(dna|aa)_.+_[:digit:]{1,2}@[:digit:]{1,2}"))
 }
@@ -53,15 +49,22 @@ runtimeStats <- read_csv(
   mutate(dataset = factor(dataset)) %>%
   rename(sRuntime = runtime)
 
-overallStats$msPerMiniCheckpoint <- overallStats$nsSumMiniCheckpoints / overallStats$numMiniCheckpoints / 10^6
+#overallStats$msPerMiniCheckpoint <- overallStats$nsSumMiniCheckpoints / overallStats$numMiniCheckpoints / 10^6
+nsSum_long <- overallStats %>% select(- starts_with("num")) %>% gather(key = timer, value = nsSum, starts_with("nsSum"))
+num_long <- overallStats %>% select(- starts_with("nsSum")) %>% gather(key = timer, value = num, starts_with("num"))
+nsSum_long$timer = str_replace(nsSum_long$timer, "nsSum", "")
+num_long$timer = str_replace(num_long$timer, "num", "")
 
-overallStatsSummary <- overallStats %>%
-  group_by(dataset) %>%
+stats_long <- inner_join(by = c("rank", "processor", "dataset", "timer"), num_long, nsSum_long)
+
+stats_long <- stats_long %>% group_by(dataset, timer) %>%
   summarise(
-    avg_msPerMiniCheckpoint = mean(msPerMiniCheckpoint),
-    stddev_msPerMiniCheckpoint = sd(msPerMiniCheckpoint),
-    numMiniCheckpoints = min(numMiniCheckpoints),
-    sSumMiniCheckpoints = max(nsSumMiniCheckpoints) / 10^9)
+    nsAvg = mean(nsSum),
+    nsSD = sd(nsSum),
+  ) %>%
+  mutate(
+    msAvg = nsAvg / 10^6,
+    msSD = nsSD / 10^6
+  )
 
-overallStatsSummary <- inner_join(by = "dataset", overallStatsSummary, runtimeStats)
-overallStatsSummary$fractionOfRuntime = overallStatsSummary$sSumMiniCheckpoints / overallStatsSummary$sRuntime
+stats_long %>% select(-starts_with("ns"))

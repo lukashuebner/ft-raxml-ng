@@ -2326,7 +2326,7 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 
     profiler_register->profileFunction([&]() {
       compute_part_masters();
-    }, "ComputePartPasters");
+    }, "ComputePartMasters");
 
     profiler_register->profileFunction([&]() {
       load_assignment_data_for_this_rank(instance);
