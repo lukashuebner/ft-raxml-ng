@@ -56,6 +56,7 @@ nsSum_long$timer = str_replace(nsSum_long$timer, "nsSum", "")
 num_long$timer = str_replace(num_long$timer, "num", "")
 
 stats_long <- inner_join(by = c("rank", "processor", "dataset", "timer"), num_long, nsSum_long)
+stats_long$nsSum <- stats_long$nsSum / stats_long$num
 
 stats_long <- stats_long %>% group_by(dataset, timer) %>%
   summarise(
@@ -67,4 +68,6 @@ stats_long <- stats_long %>% group_by(dataset, timer) %>%
     msSD = nsSD / 10^6
   )
 
-stats_long %>% select(-starts_with("ns"))
+stats_long %>% select(-starts_with("ns")) %>% filter(dataset == "dna_ShiD9_20@1") %>% arrange(desc(msAvg)) %>% print(n=30)
+stats_long %>% select(-starts_with("ns")) %>% filter(dataset == "aa_rokasA1_10@4") %>% arrange(desc(msAvg)) %>% print(n=30)
+stats_long %>% select(-starts_with("ns")) %>% filter(dataset == "dna_rokasD1_20@20") %>% arrange(desc(msAvg)) %>% print(n=30)
