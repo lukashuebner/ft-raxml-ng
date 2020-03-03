@@ -183,15 +183,26 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 
     // Update world parameters
     int numRanks = -1, rankId = -1;
-    MPI_Comm_size(_comm, &numRanks);
-    MPI_Comm_rank(_comm, &rankId);
+    if ((rc = MPI_Comm_size(_comm, &numRanks)) != MPI_SUCCESS) {
+      LOG_ERROR << "A rank failure was detected, but getting the new communicator's size using "
+                << "MPI_Comm_size failed with err.: " << mpi_err_to_string(rc) << endl; 
+      throw UnrecoverableRankFailureException();
+    }
+    if ((rc = MPI_Comm_rank(_comm, &rankId)) != MPI_SUCCESS) {
+      LOG_ERROR << "A rank failure was detected, but getting our new rank id using "
+                << "MPI_Comm_rank failed with err.: " << mpi_err_to_string(rc) << endl; 
+      throw UnrecoverableRankFailureException();
+    }
     assert(numRanks >= 1);
     assert(rankId >= 0);
     _num_ranks = (size_t)numRanks;
     _rank_id = (size_t)rankId;
+    _local_rank_id = _num_ranks > _num_groups ? _rank_id : 0;
     detect_num_nodes();
     log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
     throw RankFailureException();
+  } else if (rc != MPI_SUCCESS) {
+    throw runtime_error("MPI call did non fail because of a faulty rank but still did not return MPI_SUCCESS");
   }
 }
 #endif
