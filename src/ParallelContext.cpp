@@ -374,12 +374,11 @@ void ParallelContext::finalize(bool force)
   // Do we own the communicator -- i.e. is RAxML used as a standalone application and not as a library?
   if (_owns_comm)
   {
-    // Pass on rank failure (which might have happened earlier in another collective call.)
     if (force) {
       // Why bother checking for dead ranks? All ranks will be killed anyway.
       MPI_Abort(_comm, -1);
     } else {
-	fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
+	    fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
     }
     MPI_Finalize();
   }
