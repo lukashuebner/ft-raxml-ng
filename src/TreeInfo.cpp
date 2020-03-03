@@ -428,7 +428,8 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     assert_lh_improvement(cur_loglh, new_loglh, "RATES");
     cur_loglh = new_loglh;
 
-    CheckpointManager::update_models(*this);
+
+
   }
   /* optimize BASE FREQS */
   if (params_to_optimize & PLLMOD_OPT_PARAM_FREQUENCIES)
