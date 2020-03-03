@@ -92,6 +92,7 @@ void TreeInfo::reinit_partitions(const PartitionAssignment& part_assign) {
     pllmod_treeinfo_destroy(_pll_treeinfo);
   }, "TreeinfoDestroy");
 
+  //pllmod_treeinfo_set_tree(_pll_treeinfo, _pll_treeinfo->tree);
   _profiler_register->profileFunction([&]() {
     init(partition_reinit_info->opts,
                   tree,
@@ -105,6 +106,9 @@ void TreeInfo::reinit_partitions(const PartitionAssignment& part_assign) {
     pllmod_treeinfo_update_partials_and_clvs(_pll_treeinfo);
   }, "TreeinfoUpdatePartialsAndCLVs");
   
+  // pllmod_treeinfo_invalidate_all(_pll_treeinfo);
+  // pllmod_treeinfo_compute_loglh(_pll_treeinfo, 0);
+
   LOG_DEBUG << "Restored the following tree:" << endl;
   LOG_DEBUG << to_newick_string_rooted(tree, 0) << endl;
 }
