@@ -302,7 +302,6 @@ void ParallelContext::detect_num_nodes()
 
 //    printf("\n hostname: %s,  len; %d\n", name, len);
 
-    log("(Re)populating node names");
     node_names.insert(name);
     ParallelContext::_rankToProcessorName.push_back(name);
 
