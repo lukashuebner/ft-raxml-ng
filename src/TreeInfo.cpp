@@ -390,8 +390,7 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
       LOG_PROGR << "Restoration completed successfully." << endl;
 
       #ifndef NDEBUG
-      // This will fail for spr-round optimization
-      //assert(beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
+      assert(parameter == "spr round" || beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
       #endif
     }
   }
