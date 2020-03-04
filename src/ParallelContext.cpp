@@ -324,7 +324,9 @@ void ParallelContext::detect_num_nodes()
 
     /* broadcast number of nodes from master */
     try {
-      ParallelContext::mpi_gather_custom(worker_cb, master_cb);
+      // If we were called during a rank failure mitigation, the lock of the parallel buffer
+      // might still be acquired and we can't use it.
+      ParallelContext::mpi_gather_custom(worker_cb, master_cb, false);
 
       /* number of nodes = number of unique hostnames */
       _num_nodes = node_names.size();
@@ -679,13 +681,20 @@ void ParallelContext::global_master_broadcast_custom(std::function<int(void*, in
 }
 
 void ParallelContext::mpi_gather_custom(std::function<int(void*,int)> prepare_send_cb,
-                                        std::function<void(void*,int)> process_recv_cb)
+                                        std::function<void(void*,int)> process_recv_cb,
+                                        bool use_parallel_buf)
 {
 #ifdef _RAXML_MPI
-  /* we're gonna use _parallel_buf, so make sure other threads don't interfere... */
-  UniqueLock lock;
+  UniqueLock lock(defer_lock);
+  shared_ptr<vector<char>> buf;
+  if (use_parallel_buf) {
+    lock.lock();
+    buf = shared_ptr<vector<char>>(&_parallel_buf, [](vector<char>* _) { RAXML_UNUSED(_); /* Do not free _parallel_buf */ });
+  } else {
+    buf = make_shared<vector<char>>(PARALLEL_BUF_SIZE);
+  }
 
-  if (_rank_id == 0)
+  if (master())
   {
     for (size_t r = 1; r < _num_ranks; ++r)
     {
@@ -696,23 +705,23 @@ void ParallelContext::mpi_gather_custom(std::function<int(void*,int)> prepare_se
 
 //      printf("recv: %lu\n", recv_size);
 
-      _parallel_buf.reserve(recv_size);
+      buf->reserve(recv_size);
 
       fault_tolerant_mpi_call([&] () {
-        return MPI_Recv((void*) _parallel_buf.data(), recv_size, MPI_BYTE,
+        return MPI_Recv((void*) buf->data(), recv_size, MPI_BYTE,
                         r, 0, _comm, MPI_STATUS_IGNORE);
       });
 
-      process_recv_cb(_parallel_buf.data(), recv_size);
+      process_recv_cb(buf->data(), recv_size);
     }
   }
   else
   {
-    auto send_size = prepare_send_cb(_parallel_buf.data(), _parallel_buf.capacity());
+    auto send_size = prepare_send_cb(buf->data(), buf->capacity());
 //    printf("sent: %lu\n", send_size);
 
     fault_tolerant_mpi_call([&] () {
-      return MPI_Send(_parallel_buf.data(), send_size, MPI_BYTE, 0, 0, _comm);
+      return MPI_Send(buf->data(), send_size, MPI_BYTE, 0, 0, _comm);
     });
   }
 #else

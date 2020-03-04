@@ -107,8 +107,12 @@ public:
                                       std::function<void(void*,int)> process_recv_cb,
                                       size_t sizeOfBuffer, size_t root);
 
+  // If a rank failure occurs during this call, detect_num_nodes() will be called in the failure
+  // mitigation routine which itself will call mpi_gather_custom. In this case, we cannot use 
+  // parallel buf, as we would override its contents.
   static void mpi_gather_custom(std::function<int(void*,int)> prepare_send_cb,
-                                std::function<void(void*,int)> process_recv_cb);
+                                std::function<void(void*,int)> process_recv_cb,
+                                bool use_parallel_buf = true);
                                 
   #ifdef _RAXML_MPI
   // Will throw a RankFailureException and repair the communicator if a rank failed
@@ -159,6 +163,8 @@ public:
   {
   public:
     UniqueLock() : _lock(mtx) {}
+    UniqueLock(std::defer_lock_t tag) : _lock(mtx, tag) {}
+    void lock() {_lock.lock(); }
   private:
     LockType _lock;
   };
