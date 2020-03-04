@@ -118,7 +118,8 @@ public:
   // Will throw a RankFailureException and repair the communicator if a rank failed
   static void check_for_rank_failure();
   // For testing purposes; the rank with id <rank> will fail when the fail function is called the n-th time on this rank
-  static void fail(size_t rank, uint64_t on_nth_call = 1);
+  #define RAXML_FAILURES_SIMULATE
+  static void fail(size_t rank, int on_nth_call = 1);
   #endif
     
   // Will sleep until a debugger attaches and changes a local variable using for example
@@ -197,10 +198,12 @@ private:
   static bool mpi_finalized();
   // Converts a MPI error code and respective error class into human readable format
   static std::string mpi_err_to_string(int errorCode);
-  static uint64_t failureCounter;
+  static int failureCounter;
+  static bool _simulate_failure;
 #endif
 
   static void fault_tolerant_mpi_call(const std::function<int()> mpi_call);
+  static void update_world_parameters();
   static std::vector<ThreadType> _threads;
   static size_t _num_threads;
   static size_t _num_ranks;

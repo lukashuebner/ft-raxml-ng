@@ -363,12 +363,13 @@ void TreeInfo::mini_checkpoint() {
     CheckpointManager::update_models(*this);
   }, "MiniCheckpoint");
 
-  update_to_new_assignment();
+  //update_to_new_assignment();
   //_profiler_register->writeStats(ParallelContext::rankToProcessorName);
 }
 
 double TreeInfo::fault_tolerant_optimization(string parameter, const function<double()> optimizer) {
   double new_loglh = 1;
+  ParallelContext::fail(0, -1);
   for (;;) {
     #ifndef NDEBUG
     string beforeFailureTree;
@@ -431,6 +432,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 
 
   }
+
   /* optimize BASE FREQS */
   if (params_to_optimize & PLLMOD_OPT_PARAM_FREQUENCIES)
   {

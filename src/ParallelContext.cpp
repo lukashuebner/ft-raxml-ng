@@ -54,13 +54,20 @@ ThreadGroup& ParallelContext::thread_group(size_t id)
 }
 
 #ifdef _RAXML_MPI
-uint64_t ParallelContext::failureCounter = 0;
-void ParallelContext::fail(size_t rankId, uint64_t on_nth_call) {
-  if (_rank_id == rankId) {
-    failureCounter++;
-    if (failureCounter == on_nth_call) {
+int ParallelContext::failureCounter = 0;
+bool ParallelContext::_simulate_failure = false;
+void ParallelContext::fail(size_t rankId, int on_nth_call) {
+  // Everyone uses the same counter, this prevent another rank killing himself after the rank ids have been reassigned
+  failureCounter++;
+  if (on_nth_call < 0 || failureCounter == on_nth_call) {
+    #ifdef RAXML_FAILURES_SIMULATE
+    _simulate_failure = true;
+    RAXML_UNUSED(rankId);
+    #else
+    if (_rank_id == rankId) {
       raise(SIGKILL);
     }
+    #endif
   }
 }
 #endif
@@ -149,10 +156,56 @@ void ParallelContext::log(string message) {
   cout << "[" << _rank_id << "] " << message << endl;
 }
 
+void ParallelContext::update_world_parameters() {
+  int numRanks = -1, rankId = -1, rc;
+  if ((rc = MPI_Comm_size(_comm, &numRanks)) != MPI_SUCCESS) {
+    LOG_ERROR << "A rank failure was detected, but getting the new communicator's size using "
+              << "MPI_Comm_size failed with err.: " << mpi_err_to_string(rc) << endl; 
+    throw UnrecoverableRankFailureException();
+  }
+  if ((rc = MPI_Comm_rank(_comm, &rankId)) != MPI_SUCCESS) {
+    LOG_ERROR << "A rank failure was detected, but getting our new rank id using "
+              << "MPI_Comm_rank failed with err.: " << mpi_err_to_string(rc) << endl; 
+    throw UnrecoverableRankFailureException();
+  }
+  assert(numRanks >= 1);
+  assert(rankId >= 0);
+  _num_ranks = (size_t)numRanks;
+  _rank_id = (size_t)rankId;
+  _local_rank_id = _num_ranks > _num_groups ? _rank_id : 0;
+  detect_num_nodes();
+  log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
+}
+
 #ifdef _RAXML_MPI
 void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 {
   assert(_comm != MPI_COMM_NULL);
+
+  #ifdef RAXML_FAILURES_SIMULATE
+ 
+  if (_simulate_failure) {
+    size_t oldRankId = rank_id();
+    MPI_Comm newComm;
+    RAXML_UNUSED(mpi_call);
+
+    LOG_DEBUG << "Simulating failure" << endl;
+
+    _simulate_failure = false; // Do this *before* calling detect_num_nodes, which uses ft-MPI calls 
+    MPI_Comm_split(_comm, 0, (rank_id() + 1) % num_ranks(), &newComm);
+    MPI_Comm_free(&_comm);
+    _comm = newComm;
+
+    update_world_parameters();
+    assert(num_ranks() == 1 || oldRankId != rank_id());
+
+    throw RankFailureException();
+  } else {
+    mpi_call();
+  }
+ 
+  #else
+
   int rc, ec;
   rc = mpi_call();
   MPI_Error_class(rc, &ec);
@@ -180,30 +233,13 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
     //   throw UnrecoverableRankFailureException();
     // }
     _comm = newComm;
-
-    // Update world parameters
-    int numRanks = -1, rankId = -1;
-    if ((rc = MPI_Comm_size(_comm, &numRanks)) != MPI_SUCCESS) {
-      LOG_ERROR << "A rank failure was detected, but getting the new communicator's size using "
-                << "MPI_Comm_size failed with err.: " << mpi_err_to_string(rc) << endl; 
-      throw UnrecoverableRankFailureException();
-    }
-    if ((rc = MPI_Comm_rank(_comm, &rankId)) != MPI_SUCCESS) {
-      LOG_ERROR << "A rank failure was detected, but getting our new rank id using "
-                << "MPI_Comm_rank failed with err.: " << mpi_err_to_string(rc) << endl; 
-      throw UnrecoverableRankFailureException();
-    }
-    assert(numRanks >= 1);
-    assert(rankId >= 0);
-    _num_ranks = (size_t)numRanks;
-    _rank_id = (size_t)rankId;
-    _local_rank_id = _num_ranks > _num_groups ? _rank_id : 0;
-    detect_num_nodes();
-    log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
-    throw RankFailureException();
+    update_world_parameters();
+   throw RankFailureException();
   } else if (rc != MPI_SUCCESS) {
     throw runtime_error("MPI call did non fail because of a faulty rank but still did not return MPI_SUCCESS");
   }
+
+  #endif
 }
 #endif
 
