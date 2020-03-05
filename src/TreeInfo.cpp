@@ -434,9 +434,6 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     libpll_check_error("ERROR in substitution rates optimization");
     assert_lh_improvement(cur_loglh, new_loglh, "RATES");
     cur_loglh = new_loglh;
-
-
-
   }
 
   /* optimize BASE FREQS */

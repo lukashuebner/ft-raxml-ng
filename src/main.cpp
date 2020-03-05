@@ -123,6 +123,8 @@ struct RaxmlInstance
 
   vector<RaxmlWorker> workers;
   RaxmlWorker& get_worker() { return workers.at(ParallelContext::local_group_id()); }
+
+  RaxmlInstance() : bs_converged(false), run_phase(RaxmlRunPhase::start) {}
 };
 
 struct RaxmlWorker
@@ -1252,11 +1254,19 @@ void build_parsimony_msa(RaxmlInstance& instance)
         const auto w = pinfo.msa().weights();
         const auto s = pinfo.msa().at(j);
 
-        for (size_t k = 0; k < w.size(); ++k)
+        if (w.empty())
         {
-          auto wk = w[k];
-          while(wk-- > 0)
+          for (size_t k = 0; k < s.size(); ++k)
             sequence[offset++] = s[k];
+        }
+        else
+        {
+          for (size_t k = 0; k < w.size(); ++k)
+          {
+            auto wk = w[k];
+            while(wk-- > 0)
+              sequence[offset++] = s[k];
+          }
         }
       }
 
@@ -2961,12 +2971,11 @@ int internal_main(int argc, char** argv, void* comm)
 
     /* finalize */
     if (ParallelContext::master_rank())
-    {
       print_final_output(instance, cm.checkp_file());
 
-      /* analysis finished successfully, remove checkpoint file */
+    /* analysis finished successfully, remove checkpoint file */
+    if (ParallelContext::group_master_rank())
       cm.remove();
-    }
   }
   catch(exception& e)
   {
