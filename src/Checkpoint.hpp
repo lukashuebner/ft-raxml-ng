@@ -103,6 +103,9 @@ public:
   static void set_model_masters(shared_ptr<IDVector> model_master_ranks);
   static void update_models(const TreeInfo& treeinfo);
   static const ModelMap& all_models();
+  static void print_models();
+  static string all_models_to_string();
+  static void assert_models_are_the_same_on_all_ranks();
 
   void update_and_write(const TreeInfo& treeinfo);
 

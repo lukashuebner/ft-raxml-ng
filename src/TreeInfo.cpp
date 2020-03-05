@@ -367,13 +367,19 @@ void TreeInfo::mini_checkpoint() {
   //_profiler_register->writeStats(ParallelContext::rankToProcessorName);
 }
 
+void TreeInfo::print_tree() {
+  LOG_DEBUG << to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0) << endl;
+}
+
 double TreeInfo::fault_tolerant_optimization(string parameter, const function<double()> optimizer) {
   double new_loglh = 1;
-  ParallelContext::fail(0, -1);
+  //ParallelContext::fail(0, -1);
   for (;;) {
     #ifndef NDEBUG
-    string beforeFailureTree;
+    string beforeFailureTree, beforeFailureModels;
     beforeFailureTree = to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0);
+    beforeFailureModels = CheckpointManager::all_models_to_string();
+    assert(beforeFailureTree != "" && beforeFailureModels != "");
     #endif
 
     try{
@@ -391,6 +397,7 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
 
       #ifndef NDEBUG
       assert(parameter == "spr round" || beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
+      assert(beforeFailureModels == CheckpointManager::all_models_to_string());
       #endif
     }
   }

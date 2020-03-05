@@ -111,6 +111,7 @@ private:
   // Mini checkpoints are used to restore to in case of rank failure. This creates one.
   void mini_checkpoint();
 
+  void print_tree();
   // The callback function which can be used by this object to recalculate the sites to rank assignment
   std::function<PartitionAssignment()> redo_assignment_cb;
 

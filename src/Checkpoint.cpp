@@ -210,6 +210,53 @@ const ModelMap& CheckpointManager::all_models() {
   return _all_models; 
 }
 
+void CheckpointManager::print_models() {
+  for (auto& model: all_models()) {
+    ParallelContext::log(model.second.to_string(true));
+  }
+}
+
+string CheckpointManager::all_models_to_string() {
+  string s = "";
+  for (auto& model: all_models()) {
+    s.append("<model " + to_string(model.first) + ">");
+    s.append(model.second.to_string(true));
+  }
+  return s;
+}
+
+void CheckpointManager::assert_models_are_the_same_on_all_ranks() {
+  #ifndef NDEBUG
+  auto serialize = [](void * buf, size_t buf_size) -> int
+  {
+    BinaryStream bs((char*) buf, buf_size);
+    bs << all_models().size();
+    for (auto& model: all_models())
+    {
+      bs << model.first << model.second;
+    }
+    return (int) bs.pos();
+  };
+
+  auto deserialize = [](void * buf, size_t buf_size)
+  {
+    BinaryStream bs((char*) buf, buf_size);
+    auto model_count = bs.get<size_t>();
+    for (size_t m = 0; m < model_count; ++m)
+    {
+      size_t part_id;
+      bs >> part_id;
+
+      Model model = all_models().at(part_id);
+      bs >> model;
+      assert(model.to_string(true) == all_models().at(part_id).to_string(true));
+    }
+  };
+
+  ParallelContext::global_broadcast_custom(serialize, deserialize, sizeof(Model) * all_models().size(), 0);
+  #endif
+}
+
 // TODO: Make fault-tolerant
 // Possible challenges:
 //   - Work since the previous checkpoint is lost -> caller has to recompute this
@@ -266,6 +313,7 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
     for (size_t rank: *_model_master_ranks) {
       ParallelContext::global_broadcast_custom(serialize, deserialize, sizeof(Model) * _all_models.size(), rank);
     }
+    assert_models_are_the_same_on_all_ranks();
   }
 }
 
