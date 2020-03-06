@@ -2660,7 +2660,7 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
   balance_load(instance, instance.load_balancer_cb);
 
   /* lazy-load part of the alignment assigned to the current MPI rank */
-  if (opts.use_rba_partload)
+  if (opts.msa_format == FileFormat::binary && opts.use_rba_partload)
   {
     load_assignment_data_for_this_rank(instance);
   }
