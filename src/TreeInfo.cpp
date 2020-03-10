@@ -118,6 +118,7 @@ void TreeInfo::init_partitions(const Options &opts, const Tree& tree, const Part
                                const PartitionAssignment& part_assign,
                                const std::vector<uintVector>& site_weights)
 {
+  _parts_master.clear();
   int optimize_branches = opts.optimize_brlen ? PLLMOD_OPT_PARAM_BRANCHES_ITERATIVE : 0;
   double total_weight = 0;
 
