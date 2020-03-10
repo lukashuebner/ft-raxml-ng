@@ -114,6 +114,8 @@ public:
                                 std::function<void(void*,int)> process_recv_cb,
                                 bool use_parallel_buf = true);
                                 
+  static void parallel_reduce(double * data, size_t size, int op);
+
   #ifdef _RAXML_MPI
   // Will throw a RankFailureException and repair the communicator if a rank failed
   static void check_for_rank_failure();
@@ -231,7 +233,6 @@ private:
   static void start_thread(size_t thread_id, size_t local_thread_id,
                            ThreadGroup& thread_grp,
                            const std::function<void()>& thread_main);
-  static void parallel_reduce(double * data, size_t size, int op);
   static void detect_num_nodes();
 };
 

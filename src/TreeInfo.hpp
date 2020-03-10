@@ -107,6 +107,7 @@ private:
                                const std::vector<uintVector>& site_weights);
 
   void assert_lh_improvement(double old_lh, double new_lh, const std::string& where = "");
+  void assert_lh_eq(double lh1, double lh2);
 
   // Mini checkpoints are used to restore to in case of rank failure. This creates one.
   void mini_checkpoint();

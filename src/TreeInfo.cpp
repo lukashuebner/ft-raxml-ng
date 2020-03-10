@@ -196,6 +196,10 @@ TreeInfo::~TreeInfo ()
   }
 }
 
+void TreeInfo::assert_lh_eq(double lh1, double lh2) {
+  assert(abs(lh1 - lh2) < -lh1 * RAXML_LOGLH_TOLERANCE);
+}
+
 void TreeInfo::assert_lh_improvement(double old_lh, double new_lh, const std::string& where)
 {
   if (_check_lh_impr && !(old_lh - new_lh < -new_lh * RAXML_LOGLH_TOLERANCE))
@@ -260,7 +264,16 @@ void TreeInfo::tree(const Tree& tree)
 
 double TreeInfo::loglh(bool incremental)
 {
-  return pllmod_treeinfo_compute_loglh(_pll_treeinfo, incremental ? 1 : 0);
+  double loglh = pllmod_treeinfo_compute_loglh(_pll_treeinfo, incremental ? 1 : 0);
+
+  #ifndef NDEBUG
+  // Check ,if the loglh is equal across all PEs
+  double my_loglh = loglh;
+  ParallelContext::parallel_reduce(&loglh, 1, PLLMOD_COMMON_REDUCE_MAX);
+  assert(my_loglh == loglh); // Should be exactly equal, without tolerance
+  #endif
+
+  return loglh;
 }
 
 void TreeInfo::model(size_t partition_id, const Model& model)
@@ -373,7 +386,14 @@ void TreeInfo::print_tree() {
 
 double TreeInfo::fault_tolerant_optimization(string parameter, const function<double()> optimizer) {
   double new_loglh = 1;
-  //ParallelContext::fail(0, -1);
+
+  #ifndef NDEBUG
+  mini_checkpoint();
+  double pre_fail_loglh = loglh();
+  ParallelContext::barrier();
+  #endif
+  
+  ParallelContext::fail(0, -1);
   for (;;) {
     #ifndef NDEBUG
     string beforeFailureTree, beforeFailureModels;
@@ -385,10 +405,10 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
     try{
       // Run optimization code during which rank failure might occur
       new_loglh = optimizer();
+      assert_lh_eq(new_loglh, loglh());
 
       // Check whether a rank failure occurred but not all ranks got notified yet.
       ParallelContext::check_for_rank_failure();
-
       break;
     } catch (ParallelContext::RankFailureException& e) {
       LOG_ERROR << "Rank failure during " << parameter << " optimization." << endl;
@@ -396,7 +416,12 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
       LOG_PROGR << "Restoration completed successfully." << endl;
 
       #ifndef NDEBUG
-      assert(parameter == "spr round" || beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
+      if (parameter == "spr round" || parameter == "branch length") {
+        assert_lh_improvement(pre_fail_loglh, loglh());
+      } else if (parameter != "branch length scalers") {
+        assert_lh_eq(pre_fail_loglh, loglh());
+        assert(beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
+      }
       assert(beforeFailureModels == CheckpointManager::all_models_to_string());
       #endif
     }
