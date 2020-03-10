@@ -198,6 +198,7 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 
     update_world_parameters();
     assert(num_ranks() == 1 || oldRankId != rank_id());
+    assert(num_ranks() != 0 || oldRankId == rank_id());
 
     throw RankFailureException();
   } else {
