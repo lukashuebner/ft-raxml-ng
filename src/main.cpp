@@ -2245,11 +2245,11 @@ void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
 
   // collect PartitionAssignments from all worker threads
   PartitionAssignment local_part_ranges;
+  assert(instance.opts.num_threads == 1);
   for (size_t i = 0; i < instance.opts.num_threads; ++i)
   {
     auto thread_ranges = instance.proc_part_assign.at(ParallelContext::local_proc_id() + i);
-    for (auto& r: thread_ranges)
-    {
+    for (auto& r: thread_ranges) {
       local_part_ranges.assign_sites(r.part_id, r.start, r.length);
     }
   }
@@ -2300,27 +2300,30 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 
   auto compute_part_masters = [&instance]() {
     assert(ParallelContext::rank_id(ParallelContext::proc_id()) == ParallelContext::rank_id());
-    assert(ParallelContext::num_procs() == instance.proc_part_assign.size());
+    
     if (instance.ranks_which_are_part_masters == nullptr) {
-      instance.ranks_which_are_part_masters = make_shared<IDVector>(ParallelContext::num_ranks());
+      instance.ranks_which_are_part_masters = make_shared<IDVector>();
     } else {
       instance.ranks_which_are_part_masters->clear();
-      instance.ranks_which_are_part_masters->reserve(ParallelContext::num_ranks());
     }
+    instance.ranks_which_are_part_masters->reserve(ParallelContext::num_ranks());
+    assert(instance.ranks_which_are_part_masters->empty());
+
+    assert(ParallelContext::num_procs() == instance.proc_part_assign.size());
     for (size_t proc = 0; proc < ParallelContext::num_procs(); proc++) {
       auto& assignment = instance.proc_part_assign.at(proc);
       // assignment is the assignment to one PE (rank or thread)
       for (auto& range: assignment) {
-         // Is the processor this assignment belongs to master for this range?
+        // Is the processor this assignment belongs to master for this range?
+        size_t rank_id = ParallelContext::rank_id(proc);
         if (range.master()) {
-          size_t rank_id = ParallelContext::rank_id(proc);
           // Add each rank only once
           if (instance.ranks_which_are_part_masters->empty() ||
               instance.ranks_which_are_part_masters->back() != rank_id) {
             instance.ranks_which_are_part_masters->push_back(rank_id);
           }
           break;
-        }
+        } 
       }
     }
     CheckpointManager::set_model_masters(instance.ranks_which_are_part_masters);
@@ -2351,7 +2354,7 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
   {
     // Do this inside this loop as a node failure may have caused a reassignment
     auto const& part_assign = instance.proc_part_assign.at(ParallelContext::proc_id());
-    compute_part_masters();
+    compute_part_masters(); // TODO: Is this needed here?
 
     const auto& tree = instance.start_trees.at(start_tree_num-1);
     assert(!tree.empty());
