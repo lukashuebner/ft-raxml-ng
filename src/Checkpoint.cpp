@@ -11,7 +11,7 @@ void Checkpoint::reset_search_state()
   search_state = SearchState();
 };
 
-// TOOD: fix!
+// TODO: fix!
 Tree CheckpointFile::tree() const
 {
   return checkp_list.at(0).tree;
@@ -192,7 +192,7 @@ ModelMap CheckpointManager::_all_models;
 // The models have to be initalized once from instance.parted_msa.models(), as assing(model, treeinfo_partiton)
 // won't copy over everything (e.g. rate heterogeneity).
 void CheckpointManager::init_models(const ModelCRefMap& models) {
-  // Do not asserts that the models were not initialized before, as this may happen if we
+  // Do not assert that the models were not initialized before, as this may happen if we
   // restart from a checkpoint after rank failure.
   for (auto m: models) {
     _all_models[m.first] = m.second;
