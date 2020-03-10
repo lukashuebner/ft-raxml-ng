@@ -194,6 +194,7 @@ ModelMap CheckpointManager::_all_models;
 void CheckpointManager::init_models(const ModelCRefMap& models) {
   // Do not assert that the models were not initialized before, as this may happen if we
   // restart from a checkpoint after rank failure.
+  assert(models.size() > 0);
   for (auto m: models) {
     _all_models[m.first] = m.second;
   }
@@ -202,11 +203,15 @@ void CheckpointManager::init_models(const ModelCRefMap& models) {
 
 shared_ptr<IDVector> CheckpointManager::_model_master_ranks = nullptr;
 void CheckpointManager::set_model_masters(shared_ptr<IDVector> model_master_ranks) {
+  assert(model_master_ranks->size() > 0);
+  assert(model_master_ranks->size() <= _all_models.size());
+  assert(model_master_ranks->size() <= ParallelContext::num_ranks());
   _model_master_ranks = model_master_ranks;
 }
 
 const ModelMap& CheckpointManager::all_models() {
   assert(_models_initialized);
+  assert(_all_models.size() > 0);
   return _all_models; 
 }
 
@@ -221,6 +226,7 @@ string CheckpointManager::all_models_to_string() {
   for (auto& model: all_models()) {
     s.append("<model " + to_string(model.first) + ">");
     s.append(model.second.to_string(true));
+    s.append("brlen_scaler: " + to_string(model.second.brlen_scaler()));
   }
   return s;
 }
@@ -249,6 +255,7 @@ void CheckpointManager::assert_models_are_the_same_on_all_ranks() {
 
       Model model = all_models().at(part_id);
       bs >> model;
+
       assert(model.to_string(true) == all_models().at(part_id).to_string(true));
     }
   };
@@ -272,6 +279,7 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
   // We will for example loose the rate heterogeneity.
   // _all_models.clear()
 
+  assert(modelsToSend.empty());
   for (auto p: treeinfo.parts_master())
   {
     /* we will modify a global map -> define critical section */
@@ -280,6 +288,7 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
     assign(_all_models[p], treeinfo, p);
     modelsToSend.insert(p);
   }
+  assert(modelsToSend.size() == treeinfo.parts_master().size());
 
   ParallelContext::barrier();
 
@@ -310,6 +319,7 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
     
     // ParallelContext::mpi_gather_custom(sender_cb, receiver_cb);
     // ParallelContext::global_master_broadcast_custom(sender_cb, receiver_cb, sizeof(Model) * modelIDs.size());
+    assert(_model_master_ranks->size() >= 1 && _model_master_ranks->size() <= ParallelContext::num_ranks() && _model_master_ranks->size() <= _all_models.size());
     for (size_t rank: *_model_master_ranks) {
       ParallelContext::global_broadcast_custom(serialize, deserialize, sizeof(Model) * _all_models.size(), rank);
     }
