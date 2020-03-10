@@ -567,7 +567,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
         _pll_treeinfo->partition_count > 1) {
       fault_tolerant_optimization("rates & weights", [this]() -> double {
         pllmod_treeinfo_normalize_brlen_scalers(this->_pll_treeinfo);
-        return 0.;
+        return loglh();
       });
       mini_checkpoint();
     }
