@@ -5,6 +5,7 @@
 #include "Checkpoint.hpp"
 #include "io/file_io.hpp"
 #include <cassert>
+#include <signal.h>
 
 using namespace std;
 
@@ -385,6 +386,7 @@ void TreeInfo::print_tree() {
   LOG_DEBUG << to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0) << endl;
 }
 
+size_t failureCount = 0;
 double TreeInfo::fault_tolerant_optimization(string parameter, const function<double()> optimizer) {
   double new_loglh = 1;
 
@@ -393,7 +395,12 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
   double pre_fail_loglh = loglh();
   ParallelContext::barrier();
   #endif
-  
+
+  _profiler_register->writeStats(ParallelContext::rankToProcessorName);
+  if (++failureCount == ParallelContext::num_ranks() + 1) {
+    ParallelContext::log("suicide");
+    raise(SIGKILL);
+  }
   ParallelContext::fail(0, -1);
   for (;;) {
     #ifndef NDEBUG
