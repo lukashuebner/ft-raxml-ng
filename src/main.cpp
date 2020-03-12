@@ -2260,6 +2260,7 @@ void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
   bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
 }
 
+bool firstLoad = true;
 void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 {
   auto& worker = instance.get_worker();
@@ -2341,9 +2342,16 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
       compute_part_masters();
     }, "ComputePartMasters");
 
-    profiler_register->profileFunction([&]() {
-      load_assignment_data_for_this_rank(instance);
-    }, "LoadAssignmentData");
+    if (firstLoad) {
+      profiler_register->profileFunction([&]() {
+        load_assignment_data_for_this_rank(instance);
+      }, "LoadAssignmentDataFirstLoad");
+      firstLoad= false;
+    } else {
+      profiler_register->profileFunction([&]() {
+        load_assignment_data_for_this_rank(instance);
+      }, "LoadAssignmentData");
+    }
 
     return instance.proc_part_assign.at(ParallelContext::local_proc_id());
   };
