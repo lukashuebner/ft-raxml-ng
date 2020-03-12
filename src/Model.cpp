@@ -1221,3 +1221,35 @@ LogStream& operator<<(LogStream& stream, const Model& m)
   return stream;
 }
 
+size_t Model::encodingLength() {
+  size_t length = 0;
+  length += sizeof(brlen_scaler());
+  length += sizeof(pinv());
+  length += sizeof(num_ratecats());
+
+  // If there is only one rate category, the weight and rate will be set to a default value
+  // which will never change. We therefore do not need to store these in the stream.
+  if (num_ratecats() > 1)
+  {
+    length += sizeof(ratehet_mode());
+    if (ratehet_mode() == PLLMOD_UTIL_MIXTYPE_GAMMA)
+      length += sizeof(alpha());
+
+    length += ratecat_weights().size() * sizeof(double) + sizeof(ratecat_weights().size());
+    length += ratecat_rates().size() * sizeof(double) + sizeof(ratecat_weights().size());
+  }
+
+  /* store subst model parameters only if they were estimated */
+  if (param_mode(PLLMOD_OPT_PARAM_FREQUENCIES) == ParamValue::ML ||
+      param_mode(PLLMOD_OPT_PARAM_SUBST_RATES) == ParamValue::ML)
+  {
+    length += sizeof(num_submodels());
+    for (size_t i = 0; i < num_submodels(); ++i)
+    {
+      length += submodel(i).base_freqs().size() * sizeof(double) + sizeof(submodel(i).base_freqs().size());
+      length += submodel(i).subst_rates().size() * sizeof(double) + sizeof(submodel(i).base_freqs().size());
+    }
+  }
+
+  return length;
+}

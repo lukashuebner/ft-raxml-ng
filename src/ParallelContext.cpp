@@ -685,13 +685,16 @@ void ParallelContext::global_broadcast_custom(std::function<int(void*, int)> pre
   UniqueLock lock;
 
   // Serialize objects (prepare_send_cb) and broadcast the size of the message so the receivers can allocate enough space
-  size_t sizeOfMessage;
+  size_t sizeOfMessage = 0;
   std::vector<char> buffer;
   if (rank_id() == root) {
+    assert(sizeOfBuffer > 0);
     buffer.reserve(sizeOfBuffer);
     sizeOfMessage = prepare_send_cb(buffer.data(), buffer.capacity());
+    assert(sizeOfMessage > 0);
   }
   global_master_broadcast(&sizeOfMessage, sizeof(size_t), root);
+  assert(sizeOfMessage > 0);
 
   // Reserve space on receivers and broadcast
   if (rank_id() != root) {

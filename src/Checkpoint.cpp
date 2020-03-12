@@ -295,9 +295,10 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
   if (ParallelContext::ranks_per_group() > 1) {
     auto serialize = [&modelsToSend](void * buf, size_t buf_size) -> int
       {
+        assert(modelsToSend.size() > 0);
         BinaryStream bs((char*) buf, buf_size);
         bs << modelsToSend.size();
-        for (auto p: modelsToSend)
+        for (size_t p: modelsToSend)
         {
           bs << p << _all_models.at(p);
         }
@@ -308,10 +309,12 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
       {
         BinaryStream bs((char*) buf, buf_size);
         auto model_count = bs.get<size_t>();
+        assert(model_count > 0);
         for (size_t m = 0; m < model_count; ++m)
         {
           size_t part_id;
           bs >> part_id;
+          assert(part_id < _all_models.size());
 
           bs >> _all_models[part_id];
         }
@@ -319,9 +322,28 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
     
     // ParallelContext::mpi_gather_custom(sender_cb, receiver_cb);
     // ParallelContext::global_master_broadcast_custom(sender_cb, receiver_cb, sizeof(Model) * modelIDs.size());
-    assert(_model_master_ranks->size() >= 1 && _model_master_ranks->size() <= ParallelContext::num_ranks() && _model_master_ranks->size() <= _all_models.size());
+    assert(_model_master_ranks->size() >= 1 &&
+           _model_master_ranks->size() <= ParallelContext::num_ranks() &&
+           _model_master_ranks->size() <= _all_models.size()
+    );
+
     for (size_t rank: *_model_master_ranks) {
-      ParallelContext::global_broadcast_custom(serialize, deserialize, sizeof(Model) * _all_models.size(), rank);
+      // The sender needs to know large of a buffer to allocate.
+      // The receivers will get a message from the sender describing the length of the encoding.
+      size_t sizeOfBuffer;
+      if (ParallelContext::rank_id() == rank) {
+        assert(modelsToSend.size() > 0);
+        sizeOfBuffer = sizeof(modelsToSend.size());
+        for (size_t modelId: modelsToSend)  {
+          size_t lengthOfModelEncoding = _all_models.at(modelId).encodingLength();
+          assert(lengthOfModelEncoding > 0);
+          sizeOfBuffer += sizeof(size_t) + lengthOfModelEncoding; // part_id + model
+        }
+        assert(sizeOfBuffer > 0);
+      } else {
+        sizeOfBuffer = 0;
+      }
+      ParallelContext::global_broadcast_custom(serialize, deserialize, sizeOfBuffer, rank);
     }
     assert_models_are_the_same_on_all_ranks();
   }

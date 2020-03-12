@@ -133,6 +133,7 @@ public:
   const doubleVector& subst_rates(unsigned int i) const { return _submodels.at(i).subst_rates(); };
 
   std::string to_string(bool print_params = false, unsigned int precision = 0) const;
+  size_t encodingLength();
   int params_to_optimize() const;
   const ParamModeMap& param_mode() const { return _param_mode; }
   ParamValue param_mode(int param) const { return _param_mode.at(param); };
