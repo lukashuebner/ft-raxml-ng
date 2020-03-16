@@ -66,7 +66,11 @@ void TreeInfo::reinit_partitions(const PartitionAssignment& part_assign) {
   Tree tree;
   assert(_profiler_register != nullptr);
   _profiler_register->profileFunction([&]() {
-    tree = Tree(*_pll_treeinfo->tree);
+    if (_pll_treeinfo->recovery_tree) {
+      tree = Tree(*(_pll_treeinfo->recovery_tree));
+    } else {
+      tree = Tree(*(_pll_treeinfo->tree));
+    }
   }, "CreateTree");
 
   // TODO: Maybe we can reuse some parts of the treeinfo structure? For this, we need to update
@@ -378,8 +382,7 @@ void TreeInfo::mini_checkpoint() {
     CheckpointManager::update_models(*this);
   }, "MiniCheckpoint");
 
-  //update_to_new_assignment();
-  //_profiler_register->writeStats(ParallelContext::rankToProcessorName);
+  //pllmod_treeinfo_update_recovery_tree(_pll_treeinfo);
 }
 
 void TreeInfo::print_tree() {
@@ -396,12 +399,7 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
   ParallelContext::barrier();
   #endif
 
-  _profiler_register->writeStats(ParallelContext::rankToProcessorName);
-  if (++failureCount == ParallelContext::num_ranks() + 1) {
-    ParallelContext::log("suicide");
-    raise(SIGKILL);
-  }
-  ParallelContext::fail(0, -1);
+  //ParallelContext::fail(0, -1);
   for (;;) {
     #ifndef NDEBUG
     string beforeFailureTree, beforeFailureModels;
@@ -413,7 +411,6 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
     try{
       // Run optimization code during which rank failure might occur
       new_loglh = optimizer();
-      assert_lh_eq(new_loglh, loglh());
 
       // Check whether a rank failure occurred but not all ranks got notified yet.
       ParallelContext::check_for_rank_failure();
@@ -424,16 +421,17 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
       LOG_PROGR << "Restoration completed successfully." << endl;
 
       #ifndef NDEBUG
+      assert(beforeFailureModels == CheckpointManager::all_models_to_string());
       if (parameter == "spr round" || parameter == "branch length") {
         assert_lh_improvement(pre_fail_loglh, loglh());
-      } else if (parameter != "branch length scalers") {
-        assert_lh_eq(pre_fail_loglh, loglh());
+      } else if (parameter != "branch length scalers") { // TODO: Check if this is expected
         assert(beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
+        assert_lh_eq(pre_fail_loglh, loglh());
       }
-      assert(beforeFailureModels == CheckpointManager::all_models_to_string());
       #endif
     }
   }
+  assert_lh_eq(new_loglh, loglh());
   assert(new_loglh <= 0);
   return new_loglh;
 }
@@ -448,6 +446,8 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     new_loglh = cur_loglh;
 
   mini_checkpoint();
+  pllmod_treeinfo_update_recovery_tree(_pll_treeinfo);
+  ParallelContext::set_failure_prob(0.0005);
 
   /* optimize SUBSTITUTION RATES */
   if (params_to_optimize & PLLMOD_OPT_PARAM_SUBST_RATES)

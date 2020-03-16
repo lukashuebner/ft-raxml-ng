@@ -56,6 +56,7 @@ ThreadGroup& ParallelContext::thread_group(size_t id)
 #ifdef _RAXML_MPI
 int ParallelContext::failureCounter = 0;
 bool ParallelContext::_simulate_failure = false;
+float ParallelContext::_randomized_failure_prob = 0;
 void ParallelContext::fail(size_t rankId, int on_nth_call) {
   // Everyone uses the same counter, this prevent another rank killing himself after the rank ids have been reassigned
   failureCounter++;
@@ -69,6 +70,11 @@ void ParallelContext::fail(size_t rankId, int on_nth_call) {
     }
     #endif
   }
+}
+
+void ParallelContext::set_failure_prob(float probability) {
+  assert(probability >= 0 && probability <= 1);
+  _randomized_failure_prob = probability;
 }
 #endif
 
@@ -183,7 +189,7 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
   assert(_comm != MPI_COMM_NULL);
 
   #ifdef RAXML_FAILURES_SIMULATE
- 
+
   if (_simulate_failure) {
     size_t oldRankId = rank_id();
     MPI_Comm newComm;
@@ -605,6 +611,15 @@ void ParallelContext::parallel_reduce(double * data, size_t size, int op)
 
 void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t size, int op)
 {
+  if (_randomized_failure_prob > 0) {
+    uint32_t r = 0;
+    const uint32_t GRANULARITY = 1000000;
+    static_assert(GRANULARITY < RAND_MAX);
+    r = rand() % GRANULARITY;
+    _simulate_failure = r < GRANULARITY * _randomized_failure_prob;
+    MPI_Bcast(&_simulate_failure, 1, MPI_CXX_BOOL, 0, _comm);
+  }
+
   ParallelContext::parallel_reduce(data, size, op);
   RAXML_UNUSED(context);
 }
