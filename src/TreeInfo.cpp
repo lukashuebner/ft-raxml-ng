@@ -447,7 +447,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 
   mini_checkpoint();
   pllmod_treeinfo_update_recovery_tree(_pll_treeinfo);
-  ParallelContext::set_failure_prob(0.0005);
+  //ParallelContext::set_failure_prob(0.0005);
 
   /* optimize SUBSTITUTION RATES */
   if (params_to_optimize & PLLMOD_OPT_PARAM_SUBST_RATES)
