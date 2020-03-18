@@ -611,6 +611,9 @@ void ParallelContext::parallel_reduce(double * data, size_t size, int op)
 
 void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t size, int op)
 {
+  auto profilerRegister = ProfilerRegister::getInstance();
+  profilerRegister->endWorkTimer();
+
   if (_randomized_failure_prob > 0) {
     uint32_t r = 0;
     const uint32_t GRANULARITY = 1000000;
@@ -622,6 +625,8 @@ void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t s
 
   ParallelContext::parallel_reduce(data, size, op);
   RAXML_UNUSED(context);
+
+  profilerRegister->startWorkTimer();
 }
 
 void ParallelContext::thread_broadcast(size_t source_id, void * data, size_t size)
@@ -728,6 +733,17 @@ void ParallelContext::global_broadcast_custom(std::function<int(void*, int)> pre
 #endif
 }
 
+shared_ptr<vector<double>> ParallelContext::mpi_allgather(double value) {
+  auto values = make_shared<vector<double>>(num_ranks());
+
+  fault_tolerant_mpi_call([&] () {
+    assert(values->size() == num_ranks());
+    return MPI_Allgather(&value, 1, MPI_DOUBLE, values->data(), 1, MPI_DOUBLE, _comm);
+  });
+
+  return values;
+}
+
 void ParallelContext::global_master_broadcast_custom(std::function<int(void*, int)> prepare_send_cb,
                                                      std::function<void(void*,int)> process_recv_cb,
                                                      size_t sizeOfBuffer)
@@ -784,4 +800,3 @@ void ParallelContext::mpi_gather_custom(std::function<int(void*,int)> prepare_se
   RAXML_UNUSED(process_recv_cb);
 #endif
 }
-

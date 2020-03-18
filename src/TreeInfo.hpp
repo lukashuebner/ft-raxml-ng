@@ -34,7 +34,7 @@ public:
   TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
             const IDVector& tip_msa_idmap, 
             const PartitionAssignment& part_assign,
-            std::function<PartitionAssignment()> calculate_assignment_cb);
+            std::function<PartitionAssignment(bool)> calculate_assignment_cb);
   TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
             const IDVector& tip_msa_idmap, const PartitionAssignment& part_assign,
             const std::vector<uintVector>& site_weights);
@@ -114,10 +114,17 @@ private:
 
   void print_tree();
   // The callback function which can be used by this object to recalculate the sites to rank assignment
-  std::function<PartitionAssignment()> redo_assignment_cb;
+  std::function<PartitionAssignment(bool)> redo_assignment_cb;
+
+  // Allow the load balancer to redistribute sites according to the measured work on each rank.
+  // This function may decide not to rebalance, for example if not enough time has passed since
+  // the last call or if the work is already quite equally distributed.
+  void may_rebalance();
 
   // Calculate a new site to rank assignment and update the treeinfo structure to it. 
-  void update_to_new_assignment();
+  // If rebalance is true, the measurement of the time spent working is used to rebalance the load.
+  // The operation then not local anymore!
+  void update_to_new_assignment(bool rebalance = false);
 
   // Wrapper to call an optimization function until a pass succeeds without a rank failure.
   // On failure, the ParallelContext is updated to include only non-failed ranks, the models and tree stored at the

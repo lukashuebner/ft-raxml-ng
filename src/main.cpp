@@ -71,7 +71,7 @@ struct RaxmlInstance
 
   // When a rank failure occurs, the work has to be redistributed from within
   // the algorithm (TreeInfo for now). This requires callbacks.
-  function<PartitionAssignmentList()> load_balancer_cb;
+  function<PartitionAssignmentList(shared_ptr<vector<double>>)> load_balancer_cb;
 
   TreeList start_trees;
   BootstrapReplicateList bs_reps;
@@ -1360,20 +1360,28 @@ void build_start_trees(RaxmlInstance& instance, size_t skip_trees)
 }
 
 // This will build a function which will recalculate the load balancing based on the current
-// number of ranks. This can be helpful, if the number of ranks changed due to a rank failure.
-std::function<PartitionAssignmentList()> build_load_balancer(RaxmlInstance& instance) {
-  PartitionAssignment part_sizes;
+// number of ranks. This can be helpful if the number of ranks changed due to a rank failure.
+std::function<PartitionAssignmentList(shared_ptr<vector<double>>)> build_load_balancer(RaxmlInstance& instance) {
+  return [&instance] (shared_ptr<vector<double>> work_by_partition = nullptr) -> PartitionAssignmentList {
+    PartitionAssignment part_sizes;
 
-  /* init list of partition sizes */
-  size_t i = 0;
-  for (auto const& pinfo: instance.parted_msa->part_list())
-  {
-    part_sizes.assign_sites(i, 0, pinfo.length(), pinfo.model().clv_entry_size());
-    ++i;
-  }
+    /* init list of partition sizes */
+    for (size_t i = 0; i < instance.parted_msa->part_count(); i++)
+    {
+      auto const& pinfo = instance.parted_msa->part_list()[i];
+      if (work_by_partition == nullptr) {
+        part_sizes.assign_sites(i, 0, pinfo.length(), pinfo.model().clv_entry_size());
+      } else {
+        assert(work_by_partition->size() == instance.parted_msa->part_count());
+        assert(work_by_partition->size() > i);
+        assert(work_by_partition->at(i) > 0);
+        assert(pinfo.length() > 0);
+        double weight = work_by_partition->at(i) / pinfo.length();
+        part_sizes.assign_sites(i, 0, pinfo.length(), weight);
+      }
+    }
 
-  return [&instance, part_sizes] () -> PartitionAssignmentList {
-      return instance.load_balancer->get_all_assignments(part_sizes, ParallelContext::threads_per_group());
+    return instance.load_balancer->get_all_assignments(part_sizes, ParallelContext::threads_per_group());
   };
 }
 
@@ -2260,6 +2268,62 @@ void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
   bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
 }
 
+size_t work_logged = 0;
+void log_work_by_rank(shared_ptr<vector<double>> work_by_rank) {
+  if (!ParallelContext::master()) {
+    return;
+  }
+
+  ofstream logfile;
+  if (work_logged == 0) {
+    logfile.open("work_by_rank.csv", ios_base::out);
+    logfile << "time,rank,workMs" << endl;
+  } else {
+    logfile.open("work_by_rank.csv", ios_base::app);
+  }
+  for (size_t rank = 0; rank < work_by_rank->size(); rank++) {
+    logfile << work_logged << "," << rank << "," << work_by_rank->at(rank) << endl;
+  }
+  logfile.close();
+  work_logged++;
+}
+
+shared_ptr<vector<double>> compute_work_by_partition(RaxmlInstance& instance) {
+  auto local_work = ProfilerRegister::getInstance()->worked_for_ms();
+  ParallelContext::log("local work: " + to_string(local_work));
+  ProfilerRegister::getInstance()->reset_worked_for();
+  auto work_by_rank = ParallelContext::mpi_allgather(local_work);
+  assert(work_by_rank->size() == ParallelContext::num_ranks());
+
+  log_work_by_rank(work_by_rank);
+
+  auto work_by_partition = make_shared<vector<double>>(instance.parted_msa->part_count());
+
+  assert(ParallelContext::num_procs() == instance.proc_part_assign.size());
+  for (size_t proc = 0; proc < ParallelContext::num_procs(); proc++) {
+    assert(ParallelContext::rank_id(ParallelContext::proc_id() == ParallelContext::rank_id()));
+    size_t rank_id = ParallelContext::rank_id(proc);
+    auto& assignment_list = instance.proc_part_assign.at(proc);
+
+    // Determine the work per site for this rank
+    assert(ParallelContext::num_procs() == ParallelContext::num_ranks());
+    size_t nSites = 0;
+    for (auto& assignment: assignment_list) {
+      nSites += assignment.length;
+    }
+    assert(nSites > 0);
+    assert(work_by_rank->at(rank_id) > 0);
+    double work_per_site = work_by_rank->at(rank_id) / nSites;
+    assert(work_per_site > 0);
+
+    for (auto& assignment: assignment_list) {
+      work_by_partition->at(assignment.part_id) += work_per_site * assignment.length;
+    }
+  }
+
+  return work_by_partition;
+}
+
 bool firstLoad = true;
 void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
 {
@@ -2330,12 +2394,18 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
     CheckpointManager::set_model_masters(instance.ranks_which_are_part_masters);
   };
 
-  auto redo_assignment_cb = [&instance, &compute_part_masters] () {
+  auto redo_assignment_cb = [&instance, &compute_part_masters] (bool rebalance = false) {
     auto profiler_register = ProfilerRegister::getInstance();
 
     LOG_DEBUG << "Rebalancing load:" << endl;
     profiler_register->profileFunction([&]() {
-      balance_load(instance, instance.load_balancer_cb);
+      if (rebalance) {
+        LOG_DEBUG << "Using local work as weights to rebalance the load." << endl;
+        auto work_by_partition = compute_work_by_partition(instance);
+        balance_load(instance, bind(instance.load_balancer_cb, work_by_partition));
+      } else {
+        balance_load(instance, bind(instance.load_balancer_cb, nullptr));
+      }
     }, "BalanceLoad");
 
     profiler_register->profileFunction([&]() {
@@ -2668,7 +2738,7 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
 
   /* run load balancing algorithm */
   instance.load_balancer_cb = build_load_balancer(instance);
-  balance_load(instance, instance.load_balancer_cb);
+  balance_load(instance, bind(instance.load_balancer_cb, nullptr));
 
   /* lazy-load part of the alignment assigned to the current MPI rank */
   if (opts.msa_format == FileFormat::binary && opts.use_rba_partload)

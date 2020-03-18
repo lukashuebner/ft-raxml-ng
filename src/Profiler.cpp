@@ -282,7 +282,9 @@ ProfilerRegister::ProfilerRegister(string prefix) {
     createProFile(prefix);
     profilers = make_shared<map<string, shared_ptr<FractionalProfiler>>>();
     stats = make_shared<map<string, Measurement>>();
+    stats->insert({ string("work"), Measurement() });
 
+    assert(stats->at("work").count == 0 && stats->at("work").nsSum == 0);
     assert(profilers != nullptr);
     assert(stats != nullptr);
 }
@@ -341,6 +343,9 @@ shared_ptr<ProfilerRegister> ProfilerRegister::createInstance(string logFile) {
 }
 
 void ProfilerRegister::profileFunction(function<void()> func, string key) {
+    if (key == "work") {
+        throw runtime_error("'work' is a reserved timer, use a different key");
+    }
     auto start = chrono::high_resolution_clock::now();
     func();
     auto end = chrono::high_resolution_clock::now();
@@ -352,6 +357,36 @@ void ProfilerRegister::profileFunction(function<void()> func, string key) {
 
     stats->at(key).count++;
     stats->at(key).nsSum += callDuration; 
+}
+
+void ProfilerRegister::startWorkTimer() {
+    assert(!workTimerRunning);
+    workTimerRunning = true;
+
+    workStart = chrono::high_resolution_clock::now();
+}
+void ProfilerRegister::endWorkTimer() {
+    assert(stats->find("work") != stats->end());
+    assert(workTimerRunning);
+    workTimerRunning = false;
+
+    auto workEnd = chrono::high_resolution_clock::now();
+    uint64_t workDuration = chrono::duration_cast<chrono::nanoseconds>(workEnd - workStart).count();
+
+    stats->at("work").count++;
+    stats->at("work").nsSum += workDuration;
+}
+
+void ProfilerRegister::reset_worked_for() {
+    assert(stats->find("work") != stats->end());
+    stats->at("work").count = 0;
+    stats->at("work").nsSum = 0;
+}
+
+double ProfilerRegister::worked_for_ms() {
+    assert(!workTimerRunning);
+    assert(stats->find("work") != stats->end());
+    return (double)stats->at("work").nsSum / (1000*1000);
 }
 
 void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (*rankToProcessorName) (size_t), MPI_Comm comm) {

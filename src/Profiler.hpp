@@ -72,6 +72,10 @@ class ProfilerRegister {
         ProfilerRegister() = delete;
 
         void profileFunction(function<void()> func, string key);
+        void startWorkTimer();
+        void endWorkTimer();
+        void reset_worked_for();
+        double worked_for_ms();
         shared_ptr<map<string, Measurement>> getStats();
 
         shared_ptr<FractionalProfiler> registerProfiler(string name);
@@ -82,9 +86,14 @@ class ProfilerRegister {
      private:
         unique_ptr<ostream> proFile = nullptr;
         unique_ptr<ostream> callsPerSecondFile = nullptr;
-        string overallStatsFilename = ""; // The file is overwritten on every write
+
+        chrono::system_clock::time_point workStart;
+        bool workTimerRunning = false;
+
         shared_ptr<map<string, shared_ptr<FractionalProfiler>>> profilers = nullptr;
         shared_ptr<map<string, Measurement>> stats = nullptr;
+
+        string overallStatsFilename = ""; // The file is overwritten on every write
         void createProFile(string path);
         
         ProfilerRegister(string logFile);
