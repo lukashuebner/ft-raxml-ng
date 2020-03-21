@@ -76,16 +76,19 @@ class ProfilerRegister {
         void endWorkTimer();
         void reset_worked_for();
         double worked_for_ms();
+        std::shared_ptr<vector<double>> work_by_rank();
         shared_ptr<map<string, Measurement>> getStats();
 
         shared_ptr<FractionalProfiler> registerProfiler(string name);
         shared_ptr<FractionalProfiler> getProfiler(string name) const;
         void saveProfilingData(bool master, size_t num_ranks, string (*rankToProcessorName) (size_t), MPI_Comm comm);
         void writeStats(string (*rankToProcessorName) (size_t));
+        void saveWorkByRank(bool reset);
 
      private:
         unique_ptr<ostream> proFile = nullptr;
         unique_ptr<ostream> callsPerSecondFile = nullptr;
+        unique_ptr<ostream> workByRankFile = nullptr;
 
         chrono::system_clock::time_point workStart;
         bool workTimerRunning = false;
@@ -100,6 +103,7 @@ class ProfilerRegister {
         static shared_ptr<ProfilerRegister> singleton;
 
         unique_ptr<ostream> writeStatsHeader(unique_ptr<ostream> file);
+        uint32_t num_rebalances = 0;
 };
 
 #define PROFILE(code, name) ProfilerRegister::getInstance()->profileFunction(()[] { code },  name);

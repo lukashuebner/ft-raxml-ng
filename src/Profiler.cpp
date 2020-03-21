@@ -299,16 +299,25 @@ void ProfilerRegister::createProFile(string prefix) {
     file->open(prefix + ".proFile.csv");
     proFile = unique_ptr<ostream>(file);
     proFile = FractionalProfiler::writeTimingsHeader(move(proFile));
+    assert(proFile != nullptr && *proFile);
 
     // Calls per second file
     file = new ofstream();
     file->open(prefix + ".callsPerSecond.csv");
     callsPerSecondFile = unique_ptr<ostream>(file);
     callsPerSecondFile = FractionalProfiler::writeCallsPerSecondsHeader(move(callsPerSecondFile));
+    assert(callsPerSecondFile != nullptr && *callsPerSecondFile);
 
     // Overall statistics file
     // Here, only the filename is computed, the file is reopened (and truncated) on every write.
     overallStatsFilename = prefix + ".overallStats.csv";
+
+    // Work by rank file
+    file = new ofstream();
+    file->open(prefix + ".workByRank.csv");
+    workByRankFile = unique_ptr<ostream>(file);
+    *workByRankFile << "time,rank,workMs" << endl;
+    assert(workByRankFile != nullptr && *workByRankFile);
 }
 
 shared_ptr<FractionalProfiler> ProfilerRegister::registerProfiler(string name) {
@@ -541,4 +550,31 @@ const string FractionalProfiler::FractionalHistogram::binName(uint16_t bin) {
 shared_ptr<map<string, ProfilerRegister::Measurement>> ProfilerRegister::getStats() {
     assert(stats != nullptr);
     return stats;
+}
+
+void ProfilerRegister::saveWorkByRank(bool reset) {
+    auto work = work_by_rank(); // Will perform an MPI_Allgather
+    if (reset) {
+        reset_worked_for();
+    }
+
+    if (!ParallelContext::master()) {
+        return;
+    }
+    
+    assert(workByRankFile != nullptr && *workByRankFile);
+    
+    for (size_t rank = 0; rank < work->size(); rank++) {
+        *workByRankFile << num_rebalances << "," << rank << "," << work->at(rank) << endl;
+    }
+    assert(num_rebalances < numeric_limits<decltype(num_rebalances)>::max());
+    num_rebalances++;
+}
+
+std::shared_ptr<vector<double>> ProfilerRegister::work_by_rank() {
+    double local_work = worked_for_ms();
+    shared_ptr<doubleVector> work = ParallelContext::mpi_allgather(local_work);
+    assert(work != nullptr);
+    assert(work->size() == ParallelContext::num_ranks());
+    return work;
 }

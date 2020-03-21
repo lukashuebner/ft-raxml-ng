@@ -2268,34 +2268,9 @@ void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
   bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
 }
 
-size_t work_logged = 0;
-void log_work_by_rank(shared_ptr<vector<double>> work_by_rank) {
-  if (!ParallelContext::master()) {
-    return;
-  }
-
-  ofstream logfile;
-  if (work_logged == 0) {
-    logfile.open("work_by_rank.csv", ios_base::out);
-    logfile << "time,rank,workMs" << endl;
-  } else {
-    logfile.open("work_by_rank.csv", ios_base::app);
-  }
-  for (size_t rank = 0; rank < work_by_rank->size(); rank++) {
-    logfile << work_logged << "," << rank << "," << work_by_rank->at(rank) << endl;
-  }
-  logfile.close();
-  work_logged++;
-}
-
 shared_ptr<vector<double>> compute_work_by_partition(RaxmlInstance& instance) {
-  auto local_work = ProfilerRegister::getInstance()->worked_for_ms();
-  ParallelContext::log("local work: " + to_string(local_work));
-  ProfilerRegister::getInstance()->reset_worked_for();
-  auto work_by_rank = ParallelContext::mpi_allgather(local_work);
+  auto work_by_rank = ProfilerRegister::getInstance()->work_by_rank();
   assert(work_by_rank->size() == ParallelContext::num_ranks());
-
-  log_work_by_rank(work_by_rank);
 
   auto work_by_partition = make_shared<vector<double>>(instance.parted_msa->part_count());
 

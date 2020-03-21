@@ -394,8 +394,9 @@ void TreeInfo::mini_checkpoint() {
 void TreeInfo::may_rebalance() {
   double worked_for = _profiler_register->worked_for_ms();
   ParallelContext::parallel_reduce(&worked_for, sizeof(worked_for), PLLMOD_COMMON_REDUCE_MAX);
-  if (true || worked_for > 1000) {
+  if (worked_for > 10000) {
     update_to_new_assignment(true);
+    _profiler_register->saveWorkByRank(true);
   }
 }
 
