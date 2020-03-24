@@ -121,7 +121,7 @@ private:
   // Allow the load balancer to redistribute sites according to the measured work on each rank.
   // This function may decide not to rebalance, for example if not enough time has passed since
   // the last call or if the work is already quite equally distributed.
-  void may_rebalance();
+  void may_rebalance(bool force = false);
 
   // Calculate a new site to rank assignment and update the treeinfo structure to it. 
   // If rebalance is true, the measurement of the time spent working is used to rebalance the load.

@@ -375,15 +375,15 @@ void TreeInfo::update_to_new_assignment(bool rebalance) {
   }, "RestoreModels");
 }
 
-void TreeInfo::may_rebalance() {
+void TreeInfo::may_rebalance(bool force) {
   if (ParallelContext::ranks_per_group() == 1) {
     return;
   }
 
   double worked_for = _profiler_register->worked_for_ms();
   ParallelContext::parallel_reduce(&worked_for, sizeof(worked_for), PLLMOD_COMMON_REDUCE_MAX);
-  if (worked_for > 10000) {
-    //update_to_new_assignment(true);
+  if (force || worked_for > 10000) {
+    update_to_new_assignment(true);
     _profiler_register->saveWorkByRank(true);
   }
 }
@@ -635,6 +635,8 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 
 double TreeInfo::spr_round(spr_round_params& params)
 {
+  may_rebalance();
+
   double loglh = fault_tolerant_call("spr round", [this, &params]() -> double {
     return pllmod_algo_spr_round(_pll_treeinfo, params.radius_min, params.radius_max,
                                params.ntopol_keep, params.thorough, _brlen_opt_method,
