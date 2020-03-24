@@ -382,29 +382,14 @@ void CheckpointManager::update_and_write(const TreeInfo& treeinfo)
 {
   ProfilerRegister::getInstance()->writeStats(ParallelContext::rankToProcessorName);
 
-  if (ParallelContext::master_thread())
-    _updated_models.clear();
-
-  ParallelContext::barrier();
-
   Checkpoint& ckp = checkpoint();
 
-  for (auto p: treeinfo.parts_master())
+  for (auto& model: _working_models)
   {
     /* we will modify a global map -> define critical section */
     ParallelContext::GroupLock lock;
 
-    assign(ckp.models.at(p), treeinfo, p);
-    
-    /* remember which models were updated but this rank ->
-     * will be used later to collect them at the master */
-    _updated_models.insert(p);
-  }
-
-  ParallelContext::barrier();
-
-  if (ParallelContext::ranks_per_group() > 1) {
-    gather_model_params();
+    ckp.models.at(model.first) = model.second;
   }
 
   if (ParallelContext::group_master())
@@ -413,38 +398,6 @@ void CheckpointManager::update_and_write(const TreeInfo& treeinfo)
     if (_active)
       write();
   }
-}
-
-void CheckpointManager::gather_model_params()
-{
-  /* send callback -> worker ranks */
-  auto worker_cb = [this](void * buf, size_t buf_size) -> int
-      {
-        BinaryStream bs((char*) buf, buf_size);
-        bs << _updated_models.size();
-        for (auto p: _updated_models)
-        {
-          bs << p << checkpoint().models.at(p);
-        }
-        return (int) bs.pos();
-      };
-
-  /* receive callback -> master rank */
-  auto master_cb = [this](void * buf, size_t buf_size)
-     {
-       BinaryStream bs((char*) buf, buf_size);
-       auto model_count = bs.get<size_t>();
-       for (size_t m = 0; m < model_count; ++m)
-       {
-         size_t part_id;
-         bs >> part_id;
-
-         // read parameter estimates from binary stream
-         bs >> checkpoint().models[part_id];
-       }
-     };
-
-  ParallelContext::mpi_gather_custom(worker_cb, master_cb);
 }
 
 void CheckpointManager::gather_ml_trees()
