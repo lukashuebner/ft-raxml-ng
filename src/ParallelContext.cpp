@@ -45,6 +45,20 @@ MPI_Comm ParallelContext::_comm = MPI_COMM_WORLD;
 bool ParallelContext::_owns_comm = true;
 #endif
 
+#ifndef NDEBUG
+#include <execinfo.h>
+void print_stacktrace() {
+  if (!ParallelContext::master()) {
+    return;
+  }
+  void * array[20];
+  size_t size;
+
+  size = backtrace(array, 20);
+  backtrace_symbols_fd(array, size, STDERR_FILENO);
+}
+#endif
+
 ThreadGroup& ParallelContext::thread_group(size_t id)
 {
   if (id < _thread_groups.size())
@@ -57,7 +71,7 @@ ThreadGroup& ParallelContext::thread_group(size_t id)
 int ParallelContext::failureCounter = 0;
 bool ParallelContext::_simulate_failure = false;
 float ParallelContext::_randomized_failure_prob = 0;
-void ParallelContext::fail(size_t rankId, int on_nth_call) {
+void ParallelContext::fail(size_t rankId, int on_nth_call, bool reset) {
   // Everyone uses the same counter, this prevent another rank killing himself after the rank ids have been reassigned
   failureCounter++;
   if (on_nth_call < 0 || failureCounter == on_nth_call) {
@@ -69,6 +83,9 @@ void ParallelContext::fail(size_t rankId, int on_nth_call) {
       raise(SIGKILL);
     }
     #endif
+    if (reset) {
+      failureCounter = 0;
+    }
   }
 }
 
@@ -206,6 +223,8 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
     assert(num_ranks() == 1 || oldRankId != rank_id());
     assert(num_ranks() != 0 || oldRankId == rank_id());
 
+    // log("Rank failure at:");
+    // print_stacktrace();
     throw RankFailureException();
   } else {
     mpi_call();

@@ -74,6 +74,7 @@ class ProfilerRegister {
         void profileFunction(function<void()> func, string key);
         void startWorkTimer();
         void endWorkTimer();
+        void discardWorkTimer();
         void reset_worked_for();
         double worked_for_ms();
         std::shared_ptr<vector<double>> work_by_rank();

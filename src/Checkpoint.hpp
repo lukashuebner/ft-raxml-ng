@@ -131,7 +131,8 @@ private:
   IDSet _updated_models;
   SearchState _empty_search_state;
   static bool _models_initialized;
-  static ModelMap _all_models;
+  static ModelMap _working_models;
+  static ModelMap _tmp_models;
   static shared_ptr<IDVector> _model_master_ranks;
   static Tree _saved_tree;
 

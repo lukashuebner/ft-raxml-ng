@@ -9,10 +9,6 @@
 
 using namespace std;
 
-#ifdef RAXML_FAILURES_SIMULATE
-#define NON_FAILURE_TOLERANT_ASSERTS
-#endif
-
 TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
                     const IDVector& tip_msa_idmap,
                     const PartitionAssignment& part_assign,
@@ -21,6 +17,7 @@ TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA&
 {
   init_profiler();
   init(opts, tree, parted_msa, tip_msa_idmap, part_assign, std::vector<uintVector>());
+  mini_checkpoint(true, true);
 }
 
 TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
@@ -30,6 +27,7 @@ TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA&
 {
   init_profiler();
   init(opts, tree, parted_msa, tip_msa_idmap, part_assign, site_weights);
+  mini_checkpoint(true, true);
 }
 
 shared_ptr<ProfilerRegister> TreeInfo::_profiler_register = nullptr;
@@ -274,9 +272,9 @@ void TreeInfo::tree(const Tree& tree)
 
 double TreeInfo::loglh(bool incremental)
 {
-  double loglh = fault_tolerant_optimization("loglh computation", [this, incremental]() -> double {
+  double loglh = fault_tolerant_call("loglh computation", [this, incremental]() -> double {
       return pllmod_treeinfo_compute_loglh(_pll_treeinfo, incremental ? 1 : 0);
-  });
+  }, false, false);
 
   #ifdef NON_FAILURE_TOLERANT_ASSERTS
   // Check ,if the loglh is equal across all PEs
@@ -309,12 +307,11 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
   /* update all CLVs and p-matrices before calling BLO */
   double new_loglh = loglh();
 
-  mini_checkpoint();
-
+  ParallelContext::fail(1, 1);
   if (_pll_treeinfo->params_to_optimize[0] & PLLMOD_OPT_PARAM_BRANCHES_ITERATIVE)
   {
     int max_iters = brlen_smooth_factor * RAXML_BRLEN_SMOOTHINGS;
-    new_loglh = fault_tolerant_optimization("branch length",
+    new_loglh = fault_tolerant_call("branch length opt.",
       [this, lh_epsilon, brlen_smooth_factor, max_iters]() -> double {
         return -1 * pllmod_algo_opt_brlen_treeinfo(_pll_treeinfo,
                                                    _brlen_min,
@@ -324,9 +321,7 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
                                                    _brlen_opt_method,
                                                    PLLMOD_OPT_BRLEN_OPTIMIZE_ALL
                                                   );
-    });
-    // Not needed?
-    mini_checkpoint();
+    }, false, true);
 
     LOG_DEBUG << "\t - after brlen: logLH = " << new_loglh << endl;
 
@@ -338,15 +333,14 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
   if (_pll_treeinfo->brlen_linkage == PLLMOD_COMMON_BRLEN_SCALED &&
       _pll_treeinfo->partition_count > 1)
   {
-    new_loglh = fault_tolerant_optimization("branch length scalers", [this]() -> double {
+    new_loglh = fault_tolerant_call("branch length scalers opt.", [this]() -> double {
       return -1 * pllmod_algo_opt_brlen_scalers_treeinfo(_pll_treeinfo,
                                                          RAXML_BRLEN_SCALER_MIN,
                                                          RAXML_BRLEN_SCALER_MAX,
                                                          _brlen_min,
                                                          _brlen_max,
                                                          RAXML_PARAM_EPSILON);
-    });
-    mini_checkpoint();
+    }, true, false); // TODO: Does this depend on the scaling mode?
 
     LOG_DEBUG << "\t - after brlen scalers: logLH = " << new_loglh << endl;
 
@@ -381,21 +375,15 @@ void TreeInfo::update_to_new_assignment(bool rebalance) {
   }, "RestoreModels");
 }
 
-void TreeInfo::mini_checkpoint() {
-  assert(_profiler_register != nullptr);
-  
-  _profiler_register->profileFunction([&]() {
-    CheckpointManager::update_models(*this);
-  }, "MiniCheckpoint");
-
-  //pllmod_treeinfo_update_recovery_tree(_pll_treeinfo);
-}
-
 void TreeInfo::may_rebalance() {
+  if (ParallelContext::ranks_per_group() == 1) {
+    return;
+  }
+
   double worked_for = _profiler_register->worked_for_ms();
   ParallelContext::parallel_reduce(&worked_for, sizeof(worked_for), PLLMOD_COMMON_REDUCE_MAX);
   if (worked_for > 10000) {
-    update_to_new_assignment(true);
+    //update_to_new_assignment(true);
     _profiler_register->saveWorkByRank(true);
   }
 }
@@ -404,10 +392,24 @@ void TreeInfo::print_tree() {
   LOG_DEBUG << to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0) << endl;
 }
 
+void TreeInfo::mini_checkpoint(bool save_models, bool save_tree) {
+  if (save_models) {
+    _profiler_register->profileFunction([this]() {
+      CheckpointManager::update_models(*this);
+    }, "UpdateModels");
+  }
+  // This operation is local and therefore cannot fail
+  if (save_tree) {
+    _profiler_register->profileFunction([this]() {
+      pllmod_treeinfo_update_recovery_tree(_pll_treeinfo);
+    }, "UpdateTree");
+  }
+}
+
 size_t failureCount = 0;
-double TreeInfo::fault_tolerant_optimization(string parameter, const function<double()> optimizer) {
+double TreeInfo::fault_tolerant_call(string parameter, const function<double()> optimizer, bool changes_model, bool changes_tree) {
   //! Do not use loglh() inside this function, as loglh() will compute the log likelihood using
-  // fault_tolerant_optimization. Use pllmod_treeinfo_compute_loglh() directly instead (might fail)
+  // fault_tolerant_call. Use pllmod_treeinfo_compute_loglh() directly instead (might fail)
   double new_loglh = 1;
 
   #ifdef NON_FAILURE_TOLERANT_ASSERTS
@@ -435,23 +437,25 @@ double TreeInfo::fault_tolerant_optimization(string parameter, const function<do
       ParallelContext::check_for_rank_failure();
       
       _profiler_register->endWorkTimer();
+
+      mini_checkpoint(changes_model, changes_tree);
       break;
     } catch (ParallelContext::RankFailureException& e) {
-      //_profiler_register->endWorkTimer();
-      LOG_ERROR << "Rank failure during " << parameter << " optimization." << endl;
+      _profiler_register->discardWorkTimer();
+      LOG_ERROR << "Rank failure during " << parameter << endl;
       update_to_new_assignment();
       LOG_PROGR << "Restoration completed successfully." << endl;
 
       #ifndef NDEBUG
         assert(beforeFailureModels == CheckpointManager::all_models_to_string());
-        if (parameter != "spr round" && parameter != "branch length" && parameter != "branch length scalers") {
+        if (!changes_tree) { // Tree operations are synchronized across all ranks, no need to restore
           assert(beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
         }
         #ifdef NON_FAILURE_TOLERANT_ASSERTS
           _profiler_register->startWorkTimer();
           double loglh = pllmod_treeinfo_compute_loglh(_pll_treeinfo, 0);
           _profiler_register->endWorkTimer();
-          if (parameter == "spr round" || parameter == "branch length") {
+          if (parameter == "spr round" || parameter == "branch length opt.") {
             assert_lh_improvement(pre_fail_loglh, loglh);
           } else if (parameter != "branch length scalers") { // TODO: Check if this is expected
             assert_lh_eq(pre_fail_loglh, loglh);
@@ -476,28 +480,27 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 {
   assert(!pll_errno);
 
+  // TODO: Catch failures more elegantly
+  mini_checkpoint(true, true);
+  may_rebalance();
+
   double
     cur_loglh = loglh(),
     new_loglh = cur_loglh;
-
-  mini_checkpoint();
-  pllmod_treeinfo_update_recovery_tree(_pll_treeinfo);
-  may_rebalance();
 
   //ParallelContext::set_failure_prob(0.0005);
 
   /* optimize SUBSTITUTION RATES */
   if (params_to_optimize & PLLMOD_OPT_PARAM_SUBST_RATES)
   {
-    new_loglh = fault_tolerant_optimization("substitution rates", [this]() -> double {
+    new_loglh = fault_tolerant_call("substitution rates opt.", [this]() -> double {
       return -1 * pllmod_algo_opt_subst_rates_treeinfo(this->_pll_treeinfo,
                                                        0,
                                                        PLLMOD_OPT_MIN_SUBST_RATE,
                                                        PLLMOD_OPT_MAX_SUBST_RATE,
                                                        RAXML_BFGS_FACTOR,
                                                        RAXML_PARAM_EPSILON);
-    });
-    mini_checkpoint();
+    }, true, false);
 
     LOG_DEBUG << "\t - after rates: logLH = " << new_loglh << endl;
 
@@ -509,15 +512,14 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
   /* optimize BASE FREQS */
   if (params_to_optimize & PLLMOD_OPT_PARAM_FREQUENCIES)
   {
-    new_loglh = fault_tolerant_optimization("frequencies", [this]() -> double {
+    new_loglh = fault_tolerant_call("frequencies opt.", [this]() -> double {
       return -1 * pllmod_algo_opt_frequencies_treeinfo(this->_pll_treeinfo,
                                                        0,
                                                        PLLMOD_OPT_MIN_FREQ,
                                                        PLLMOD_OPT_MAX_FREQ,
                                                        RAXML_BFGS_FACTOR,
                                                        RAXML_PARAM_EPSILON);
-    });
-    mini_checkpoint();
+    }, true, false);
 
     LOG_DEBUG << "\t - after freqs: logLH = " << new_loglh << endl;
 
@@ -531,7 +533,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
       (params_to_optimize & PLLMOD_OPT_PARAM_ALPHA) &&
       (params_to_optimize & PLLMOD_OPT_PARAM_PINV))
   {
-    new_loglh = fault_tolerant_optimization("alpha & pinv", [this]() -> double {
+    new_loglh = fault_tolerant_call("alpha & pinv opt.", [this]() -> double {
       return -1 * pllmod_algo_opt_alpha_pinv_treeinfo(_pll_treeinfo,
                                                       0,
                                                       PLLMOD_OPT_MIN_ALPHA,
@@ -540,8 +542,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
                                                       PLLMOD_OPT_MAX_PINV,
                                                       RAXML_BFGS_FACTOR,
                                                       RAXML_PARAM_EPSILON);
-    });
-    mini_checkpoint();
+    }, true, false);
 
     LOG_DEBUG << "\t - after a+i  : logLH = " << new_loglh << endl;
 
@@ -554,14 +555,13 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     /* optimize ALPHA */
     if (params_to_optimize & PLLMOD_OPT_PARAM_ALPHA)
     {
-      new_loglh = fault_tolerant_optimization("alpha", [this]() -> double {
+      new_loglh = fault_tolerant_call("alpha opt.", [this]() -> double {
         return -1 * pllmod_algo_opt_onedim_treeinfo(this->_pll_treeinfo,
                                                     PLLMOD_OPT_PARAM_ALPHA,
                                                     PLLMOD_OPT_MIN_ALPHA,
                                                     PLLMOD_OPT_MAX_ALPHA,
                                                     RAXML_PARAM_EPSILON);
-      });
-      mini_checkpoint();
+      }, true, false);
 
       LOG_DEBUG << "\t - after alpha: logLH = " << new_loglh << endl;
 
@@ -573,14 +573,13 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     /* optimize PINV */
     if (params_to_optimize & PLLMOD_OPT_PARAM_PINV)
     {
-      new_loglh = fault_tolerant_optimization("p-inv", [this]() -> double {
+      new_loglh = fault_tolerant_call("p-inv opt.", [this]() -> double {
         return -1 * pllmod_algo_opt_onedim_treeinfo(this->_pll_treeinfo,
                                                     PLLMOD_OPT_PARAM_PINV,
                                                     PLLMOD_OPT_MIN_PINV,
                                                     PLLMOD_OPT_MAX_PINV,
                                                     RAXML_PARAM_EPSILON);
-      });
-      mini_checkpoint();
+      }, true, false);
 
       LOG_DEBUG << "\t - after p-inv: logLH = " << new_loglh << endl;
 
@@ -593,28 +592,23 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
   /* optimize FREE RATES and WEIGHTS */
   if (params_to_optimize & PLLMOD_OPT_PARAM_FREE_RATES)
   {
-    cur_loglh = fault_tolerant_optimization("rates & weights", [this]() -> double {
-      return pllmod_treeinfo_compute_loglh(this->_pll_treeinfo, 0);
-    });
-    mini_checkpoint();
+    cur_loglh = loglh();
 
-    new_loglh = fault_tolerant_optimization("rates & weights", [this]() -> double {
+    new_loglh = fault_tolerant_call("rates & weights opt.", [this]() -> double {
       return -1 * pllmod_algo_opt_rates_weights_treeinfo (this->_pll_treeinfo,
                                                           RAXML_FREERATE_MIN,
                                                           RAXML_FREERATE_MAX,
                                                           RAXML_BFGS_FACTOR,
                                                           RAXML_PARAM_EPSILON);
-    });
-    mini_checkpoint();
+    }, true, false);
     
     /* normalize scalers and scale the branches accordingly */
     if (_pll_treeinfo->brlen_linkage == PLLMOD_COMMON_BRLEN_SCALED &&
         _pll_treeinfo->partition_count > 1) {
-      fault_tolerant_optimization("rates & weights", [this]() -> double {
+      fault_tolerant_call("brlen scaler normalisation", [this]() -> double {
         pllmod_treeinfo_normalize_brlen_scalers(_pll_treeinfo);
         return pllmod_treeinfo_compute_loglh(_pll_treeinfo, 0);
-      });
-      mini_checkpoint();
+      }, true, false); // TODO: Does this depend on the scaling mode?
     }
 
     LOG_DEBUG << "\t - after freeR: logLH = " << new_loglh << endl;
@@ -634,20 +628,21 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
     cur_loglh = new_loglh;
   }
 
+  mini_checkpoint(true, true);
+
   return new_loglh;
 }
 
 double TreeInfo::spr_round(spr_round_params& params)
 {
-  double loglh = fault_tolerant_optimization("spr round", [this, &params]() -> double {
+  double loglh = fault_tolerant_call("spr round", [this, &params]() -> double {
     return pllmod_algo_spr_round(_pll_treeinfo, params.radius_min, params.radius_max,
                                params.ntopol_keep, params.thorough, _brlen_opt_method,
                                _brlen_min, _brlen_max, RAXML_BRLEN_SMOOTHINGS,
                                0.1,
                                params.subtree_cutoff > 0. ? &params.cutoff_info : nullptr,
                                params.subtree_cutoff);
-  });
-  mini_checkpoint();
+  }, false, true);
 
   libpll_check_error("ERROR in SPR round");
 

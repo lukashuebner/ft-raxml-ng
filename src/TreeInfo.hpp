@@ -110,7 +110,9 @@ private:
   void assert_lh_eq(double lh1, double lh2);
 
   // Mini checkpoints are used to restore to in case of rank failure. This creates one.
-  void mini_checkpoint();
+  // Saving the models is a distributed operation and might therefore detect a rank failure.
+  // In this case, neither the model nor the tree are updated.
+  void mini_checkpoint(bool save_models, bool save_tree);
 
   void print_tree();
   // The callback function which can be used by this object to recalculate the sites to rank assignment
@@ -129,7 +131,7 @@ private:
   // Wrapper to call an optimization function until a pass succeeds without a rank failure.
   // On failure, the ParallelContext is updated to include only non-failed ranks, the models and tree stored at the
   // last mini_checkpoint() are restored and the optimization routine is invoked again.
-  double fault_tolerant_optimization(std::string parameter, const std::function<double()> optimizer);
+  double fault_tolerant_call(std::string parameter, const std::function<double()> optimizer, bool changes_model, bool changes_tree);
 
   // Will not reinitiate but reuse the profiler if called twice
   void init_profiler();

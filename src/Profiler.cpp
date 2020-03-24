@@ -356,7 +356,7 @@ void ProfilerRegister::profileFunction(function<void()> func, string key) {
         throw runtime_error("'work' is a reserved timer, use a different key");
     }
     auto start = chrono::high_resolution_clock::now();
-    func();
+    func(); // If this throws an exception, it's runtime will not be counted
     auto end = chrono::high_resolution_clock::now();
     uint64_t callDuration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
 
@@ -374,6 +374,7 @@ void ProfilerRegister::startWorkTimer() {
 
     workStart = chrono::high_resolution_clock::now();
 }
+
 void ProfilerRegister::endWorkTimer() {
     assert(stats->find("work") != stats->end());
     assert(workTimerRunning);
@@ -384,6 +385,10 @@ void ProfilerRegister::endWorkTimer() {
 
     stats->at("work").count++;
     stats->at("work").nsSum += workDuration;
+}
+
+void ProfilerRegister::discardWorkTimer() {
+    workTimerRunning = false;
 }
 
 void ProfilerRegister::reset_worked_for() {

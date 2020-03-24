@@ -124,7 +124,7 @@ public:
   // Will throw a RankFailureException and repair the communicator if a rank failed
   static void check_for_rank_failure();
   // For testing purposes; the rank with id <rank> will fail when the fail function is called the n-th time on this rank
-  static void fail(size_t rank, int on_nth_call = 1);
+  static void fail(size_t rank, int on_nth_call = 1, bool reset = false);
   static void set_failure_prob(float probability);
   #endif
     
@@ -240,5 +240,12 @@ private:
                            const std::function<void()>& thread_main);
   static void detect_num_nodes();
 };
+
+// Some assertions communicate over the network (for example to compute the loglh)
+// They may not handle failures correctly and should be disabled when simulating
+// failures.
+#ifdef RAXML_FAILURES_SIMULATE
+#define NON_FAILURE_TOLERANT_ASSERTS
+#endif
 
 #endif /* RAXML_PARALLELCONTEXT_HPP_ */

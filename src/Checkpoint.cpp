@@ -187,7 +187,8 @@ void CheckpointManager::save_bs_tree()
 }
 
 bool CheckpointManager::_models_initialized = false;
-ModelMap CheckpointManager::_all_models;
+ModelMap CheckpointManager::_working_models;
+ModelMap CheckpointManager::_tmp_models;
 
 // The models have to be initalized once from instance.parted_msa.models(), as assing(model, treeinfo_partiton)
 // won't copy over everything (e.g. rate heterogeneity).
@@ -196,7 +197,8 @@ void CheckpointManager::init_models(const ModelCRefMap& models) {
   // restart from a checkpoint after rank failure.
   assert(models.size() > 0);
   for (auto m: models) {
-    _all_models[m.first] = m.second;
+    _working_models[m.first] = m.second;
+    _tmp_models[m.first] = m.second;
   }
   _models_initialized = true;
 }
@@ -204,15 +206,15 @@ void CheckpointManager::init_models(const ModelCRefMap& models) {
 shared_ptr<IDVector> CheckpointManager::_model_master_ranks = nullptr;
 void CheckpointManager::set_model_masters(shared_ptr<IDVector> model_master_ranks) {
   assert(model_master_ranks->size() > 0);
-  assert(model_master_ranks->size() <= _all_models.size());
+  assert(model_master_ranks->size() <= all_models().size());
   assert(model_master_ranks->size() <= ParallelContext::num_ranks());
   _model_master_ranks = model_master_ranks;
 }
 
 const ModelMap& CheckpointManager::all_models() {
   assert(_models_initialized);
-  assert(_all_models.size() > 0);
-  return _all_models; 
+  assert(_working_models.size() > 0);
+  return _working_models; 
 }
 
 void CheckpointManager::print_models() {
@@ -231,8 +233,9 @@ string CheckpointManager::all_models_to_string() {
   return s;
 }
 
+// Only checks the working copy of the models, not the receiving copy
 void CheckpointManager::assert_models_are_the_same_on_all_ranks() {
-  #ifndef NDEBUG
+  #ifdef NON_FAILURE_TOLERANT_ASSERTS
   auto serialize = [](void * buf, size_t buf_size) -> int
   {
     BinaryStream bs((char*) buf, buf_size);
@@ -255,7 +258,6 @@ void CheckpointManager::assert_models_are_the_same_on_all_ranks() {
 
       Model model = all_models().at(part_id);
       bs >> model;
-
       assert(model.to_string(true) == all_models().at(part_id).to_string(true));
     }
   };
@@ -264,35 +266,40 @@ void CheckpointManager::assert_models_are_the_same_on_all_ranks() {
   #endif
 }
 
-// TODO: Make fault-tolerant
-// Possible challenges:
-//   - Work since the previous checkpoint is lost -> caller has to recompute this
-//   - We'll need a mechanism to "atomically" enable the new checkpoint
+// This method will pass on all RankFailureExceptions to the caller which should handle them.
+// In case this method throws such an exception, it guarantees, that none of the models have
+// been updated on any rank.
 void CheckpointManager::update_models(const TreeInfo& treeinfo) {
-  assert(_models_initialized);
-  assert(_model_master_ranks != nullptr);
-  IDSet modelsToSend;
+  assert(ParallelContext::ranks_per_group() >= 1);
+  if (ParallelContext::ranks_per_group() == 1) {
+    for (auto p: treeinfo.parts_master()) {
+      assign(_working_models[p], treeinfo, p);
+    }
+  } else {
+    assert(_models_initialized);
+    assert(_model_master_ranks != nullptr);
+    assert(_working_models.size() == _tmp_models.size());
+    IDSet modelsToSend;
 
-  ParallelContext::barrier();
+    // Do not clear models. The assign does NOT update all aspects of the model. For example rate
+    // heterogeneity will be lost. Models therefore need to be updated using assign.
+    // _all_models.clear()
 
-  // Do not clear all models. The assign seems to not update all aspects of the model.
-  // We will for example loose the rate heterogeneity.
-  // _all_models.clear()
+    // First, collect the model ids of those models that this rank is the "master" for, i.e. responsible
+    // for sending the model parameters to the other ranks.
+    assert(modelsToSend.empty());
+    for (auto p: treeinfo.parts_master())
+    {
+      /* we will modify a global map -> define critical section */
+      ParallelContext::GroupLock lock;
 
-  assert(modelsToSend.empty());
-  for (auto p: treeinfo.parts_master())
-  {
-    /* we will modify a global map -> define critical section */
-    ParallelContext::GroupLock lock;
+      assign(_tmp_models[p], treeinfo, p);
+      modelsToSend.insert(p);
+    }
+    assert(modelsToSend.size() == treeinfo.parts_master().size());
 
-    assign(_all_models[p], treeinfo, p);
-    modelsToSend.insert(p);
-  }
-  assert(modelsToSend.size() == treeinfo.parts_master().size());
-
-  ParallelContext::barrier();
-
-  if (ParallelContext::ranks_per_group() > 1) {
+    // Serialize all the models this rank has to send out into a bytestream which
+    // will be broadcasted to all other ranks.
     auto serialize = [&modelsToSend](void * buf, size_t buf_size) -> int
       {
         assert(modelsToSend.size() > 0);
@@ -300,12 +307,14 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
         bs << modelsToSend.size();
         for (size_t p: modelsToSend)
         {
-          bs << p << _all_models.at(p);
+          bs << p << _tmp_models.at(p);
+          // ParallelContext::log("Sent model " + to_string(p) + ": " + _tmp_models.at(p).to_string(true));
         }
         return (int) bs.pos();
       };
 
-    auto deserialize = [](void * buf, size_t buf_size)
+    // Deserialize all models received from one rank.
+    auto deserialize = [&modelsToSend](void * buf, size_t buf_size)
       {
         BinaryStream bs((char*) buf, buf_size);
         auto model_count = bs.get<size_t>();
@@ -314,17 +323,19 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
         {
           size_t part_id;
           bs >> part_id;
-          assert(part_id < _all_models.size());
+          assert(part_id < _tmp_models.size());
+          assert(modelsToSend.find(part_id) == modelsToSend.end());
 
-          bs >> _all_models[part_id];
+          bs >> _tmp_models[part_id];
+          // ParallelContext::log("Rcvd model " + to_string(part_id) + ": " + _tmp_models.at(part_id).to_string(true));
         }
       };
-    
-    // ParallelContext::mpi_gather_custom(sender_cb, receiver_cb);
-    // ParallelContext::global_master_broadcast_custom(sender_cb, receiver_cb, sizeof(Model) * modelIDs.size());
+
+    // Now, perform one broadcast from every rank which is master of at least one model
+
     assert(_model_master_ranks->size() >= 1 &&
-           _model_master_ranks->size() <= ParallelContext::num_ranks() &&
-           _model_master_ranks->size() <= _all_models.size()
+          _model_master_ranks->size() <= ParallelContext::num_ranks() &&
+          _model_master_ranks->size() <= _tmp_models.size()
     );
 
     for (size_t rank: *_model_master_ranks) {
@@ -335,7 +346,7 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
         assert(modelsToSend.size() > 0);
         sizeOfBuffer = sizeof(modelsToSend.size());
         for (size_t modelId: modelsToSend)  {
-          size_t lengthOfModelEncoding = _all_models.at(modelId).encodingLength();
+          size_t lengthOfModelEncoding = _tmp_models.at(modelId).encodingLength();
           assert(lengthOfModelEncoding > 0);
           sizeOfBuffer += sizeof(size_t) + lengthOfModelEncoding; // part_id + model
         }
@@ -343,8 +354,26 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
       } else {
         sizeOfBuffer = 0;
       }
-      ParallelContext::global_broadcast_custom(serialize, deserialize, sizeOfBuffer, rank);
+      try {
+        ParallelContext::global_broadcast_custom(serialize, deserialize, sizeOfBuffer, rank);
+      } catch (ParallelContext::RankFailureException& e){
+        LOG_ERROR << "Rank failure during mini-checkpointing" << endl;
+        throw e;
+      }
     }
+
+    // If no rank failrue have occurred, locally update the working copy of the models from the received models.
+    // If a rank fails after this barrier, the received models will still be the state the search is restored to,
+    // as every rank still alive has copied them over to their working copy.
+    ParallelContext::check_for_rank_failure();
+    assert(_tmp_models.size() == _working_models.size());
+    assert(_working_models.size() > 0);
+    for (size_t model_id = 0; model_id < _tmp_models.size(); model_id++) {
+      _working_models[model_id] = _tmp_models[model_id];
+      assert(_working_models[model_id].to_string(true) == _tmp_models[model_id].to_string(true));
+      // ParallelContext::log("Copied model " + to_string(model_id) + ": " + _working_models[model_id].to_string(true));
+    }
+
     assert_models_are_the_same_on_all_ranks();
   }
 }
