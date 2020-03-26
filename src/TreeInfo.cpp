@@ -307,7 +307,6 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
   /* update all CLVs and p-matrices before calling BLO */
   double new_loglh = loglh();
 
-  ParallelContext::fail(1, 1);
   if (_pll_treeinfo->params_to_optimize[0] & PLLMOD_OPT_PARAM_BRANCHES_ITERATIVE)
   {
     int max_iters = brlen_smooth_factor * RAXML_BRLEN_SMOOTHINGS;
@@ -418,7 +417,6 @@ double TreeInfo::fault_tolerant_call(string parameter, const function<double()> 
   _profiler_register->endWorkTimer();
   #endif
 
-  //ParallelContext::fail(0, -1);
   for (;;) {
     #ifndef NDEBUG
     string beforeFailureTree, beforeFailureModels;
