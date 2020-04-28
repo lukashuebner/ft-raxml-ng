@@ -480,7 +480,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 
   // TODO: Catch failures more elegantly
   mini_checkpoint(true, true);
-  may_rebalance();
+  //may_rebalance();
 
   double
     cur_loglh = loglh(),
@@ -633,7 +633,7 @@ double TreeInfo::optimize_params(int params_to_optimize, double lh_epsilon)
 
 double TreeInfo::spr_round(spr_round_params& params)
 {
-  may_rebalance();
+  //may_rebalance();
 
   double loglh = fault_tolerant_call("spr round", [this, &params]() -> double {
     return pllmod_algo_spr_round(_pll_treeinfo, params.radius_min, params.radius_max,
