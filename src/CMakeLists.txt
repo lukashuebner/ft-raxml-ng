@@ -55,6 +55,8 @@ endif()
 
 set(RAXML_LIBS ${LIBPLL_LIBS} m)
 
+set(RAXML_LIBS ${RAXML_LIBS} bitbuffer)
+
 if(USE_TERRAPHAST)
   set(RAXML_LIBS ${RAXML_LOCALDEPS_DIR}/lib/libterraces.a ${RAXML_LIBS})
   add_dependencies(raxml_module terraces)

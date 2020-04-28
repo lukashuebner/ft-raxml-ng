@@ -49,3 +49,6 @@ if(USE_TERRAPHAST)
   add_subdirectory(terraphast)
   set(TERRACES_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/terraphast/include PARENT_SCOPE)
 endif()
+
+# build bitbuffer
+add_subdirectory(bit-buffer)

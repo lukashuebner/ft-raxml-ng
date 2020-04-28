@@ -4,3 +4,6 @@
 [submodule "libs/terraphast"]
 	path = libs/terraphast
 	url = https://github.com/amkozlov/terraphast-one
+[submodule "libs/bit-buffer"]
+	path = libs/bit-buffer
+	url = https://github.com/Aadeshp/BitBufferCpp.git
