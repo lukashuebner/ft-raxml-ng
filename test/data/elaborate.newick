@@ -1,0 +1,22 @@
+(
+    (
+        ll,
+        (
+            lrl,
+            lrr
+        )lr
+    )l,
+    (
+        rl,
+        (
+            (
+                rrll,
+                rrlr
+            )rrl,
+            (
+                rrrl,
+                rrrr
+            )rrr
+        )rr
+    )r
+)root;
