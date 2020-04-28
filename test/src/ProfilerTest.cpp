@@ -323,9 +323,9 @@ TEST(ProfilerTest, ProfilerRegister) {
     hwProfiler->saveTimer(111970);
     ASSERT_EQ(hwProfiler->getHistogram()->numEvents(), 1);
 
-    // ASSERT_EQ(0, remove("profile_2.callsPerSecond.csv"));
-    // ASSERT_EQ(0, remove("profile_2.proFile.csv"));
-    // ASSERT_EQ(0, remove("dummyFile"));
+    ASSERT_EQ(0, remove("dummyFile.callsPerSecond.csv"));
+    ASSERT_EQ(0, remove("dummyFile.proFile.csv"));
+    ASSERT_EQ(0, remove("dummyFile.workByRank.csv"));
 }
 
 TEST(ProfilerTest, PausingTimers) {
