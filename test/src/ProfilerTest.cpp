@@ -285,7 +285,8 @@ TEST(ProfilerTest, writeStats_Basic) {
     } 
 
     // timing stats
-    ifstream referenceFile("../../../test/writeStatsReference.proFile.csv");
+    ifstream referenceFile("test/data/writeStatsReference.proFile.csv");
+    assert(referenceFile.good());
     referenceFile.seekg(0, ios::end);
     size_t size = referenceFile.tellg();
     string referenceString(size, ' ');
