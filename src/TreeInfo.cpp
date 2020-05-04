@@ -9,7 +9,7 @@
 
 using namespace std;
 
-extern "C" void (*pllmod_treeinfo_update_recovery_tree_benchmarked)(pllmod_treeinfo_t * treeinfo);
+//extern "C" void (*pllmod_treeinfo_update_recovery_tree_benchmarked)(pllmod_treeinfo_t * treeinfo);
 
 TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
                     const IDVector& tip_msa_idmap,
@@ -66,11 +66,11 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
   partition_reinit_info = make_shared<partition_reinit_info_t>(opts, parted_msa, tip_msa_idmap, site_weights);
 
   // Enable profiling for tree updates
-  pllmod_treeinfo_update_recovery_tree_benchmarked = [](pllmod_treeinfo_t * treeinfo) {
+  pllmod_treeinfo_update_recovery_tree_set_benchmarked([](pllmod_treeinfo_t * treeinfo) {
     _profiler_register->profileFunction([&treeinfo]() {
       pllmod_treeinfo_update_recovery_tree(treeinfo);
     }, "UpdateTree");
-  };
+  });
 }
 
 void TreeInfo::reinit_partitions(const PartitionAssignment& part_assign) {
@@ -408,7 +408,7 @@ void TreeInfo::mini_checkpoint(bool save_models, bool save_tree) {
   }
   // This operation is local and therefore cannot fail
   if (save_tree) {
-    (*pllmod_treeinfo_update_recovery_tree_benchmarked)(_pll_treeinfo);
+    pllmod_treeinfo_update_recovery_tree_benchmarked(_pll_treeinfo);
   }
 }
 
