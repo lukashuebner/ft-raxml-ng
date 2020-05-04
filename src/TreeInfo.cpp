@@ -9,6 +9,8 @@
 
 using namespace std;
 
+extern "C" void (*pllmod_treeinfo_update_recovery_tree_benchmarked)(pllmod_treeinfo_t * treeinfo);
+
 TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA& parted_msa,
                     const IDVector& tip_msa_idmap,
                     const PartitionAssignment& part_assign,
@@ -62,6 +64,13 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
 
   init_partitions(opts, tree, parted_msa, tip_msa_idmap, part_assign, site_weights);
   partition_reinit_info = make_shared<partition_reinit_info_t>(opts, parted_msa, tip_msa_idmap, site_weights);
+
+  // Enable profiling for tree updates
+  pllmod_treeinfo_update_recovery_tree_benchmarked = [](pllmod_treeinfo_t * treeinfo) {
+    _profiler_register->profileFunction([&treeinfo]() {
+      pllmod_treeinfo_update_recovery_tree(treeinfo);
+    }, "UpdateTree");
+  };
 }
 
 void TreeInfo::reinit_partitions(const PartitionAssignment& part_assign) {
@@ -399,16 +408,14 @@ void TreeInfo::mini_checkpoint(bool save_models, bool save_tree) {
   }
   // This operation is local and therefore cannot fail
   if (save_tree) {
-    _profiler_register->profileFunction([this]() {
-      pllmod_treeinfo_update_recovery_tree(_pll_treeinfo);
-    }, "UpdateTree");
+    (*pllmod_treeinfo_update_recovery_tree_benchmarked)(_pll_treeinfo);
   }
 }
 
 size_t failureCount = 0;
 double TreeInfo::fault_tolerant_call(string parameter, const function<double()> optimizer, bool changes_model, bool changes_tree) {
   //! Do not use loglh() inside this function, as loglh() will compute the log likelihood using
-  // fault_tolerant_call. Use pllmod_treeinfo_compute_loglh() directly instead (might fail)
+  //! fault_tolerant_call. Use pllmod_treeinfo_compute_loglh() directly instead (might fail)
   double new_loglh = 1;
 
   #ifdef NON_FAILURE_TOLERANT_ASSERTS
