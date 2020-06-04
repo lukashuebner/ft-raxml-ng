@@ -272,7 +272,12 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 #ifdef _RAXML_MPI
 void ParallelContext::check_for_rank_failure() {
   assert(!mpi_finalized());
+  #ifdef RAXML_SIMULATE_FAILURES
   fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
+  #else
+  int flag = 42;
+  fault_tolerant_mpi_call([&] () { return MPIX_Comm_agree(_comm, &flag); });
+  #endif
 }
 #endif
 
