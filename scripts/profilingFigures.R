@@ -33,6 +33,8 @@ dataset2Label <- function(s) {
 
 ### Setup variables ###
 csvDirRelative <- "/home/lukas/Documents/Uni/Masterarbeit/raxml-run/relative"
+plotDir <- "/home/lukas/Documents/Uni/Masterarbeit/thesis/figures"
+dataDir <- "/home/lukas/Documents/Uni/Masterarbeit/thesis/rawdata"
 
 ### Data loading ###
 # load profiling data from single csv file and add `dataset` column
@@ -228,6 +230,14 @@ ggplot() +
     y = "0.05 to 0.95 quantiles of time difference to fastest rank",
     colour = "Code Segment"
   )
+ggsave(
+  filename = "perf-time-diff-to-fastest.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 # Boxplot of range of difference to fastest rank
 proFileDataRelative_timeless_long <- proFileDataRelative_timeless %>%
@@ -276,6 +286,14 @@ ggplot(
     y = "range of time difference to fastest rank",
     colour = "Code Segment"
   )
+ggsave(
+  filename = "perf-diff-to-fastest-boxplot.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 ### Behaviour of plots over time
 # proFileDataRelative_long <- proFileDataRelative %>%
@@ -484,6 +502,14 @@ ggplot() +
     y = "range of absolute time spent in code segment (0.05 to 0.95 quantiles)",
     colour = "Code Segment"
   )
+ggsave(
+  filename = "perf-absolute-time.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 ### Different MPI Implementations ###
 csvDirDifferentMPI <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/differentMpiImplementations"
@@ -627,7 +653,7 @@ proFileData_overallStats <- inner_join(
 # Imbalance of work across ranks
 ggplot(data = proFileData_overallStats) +
   geom_histogram(aes(nsSumWork / avgWork), stat = "bin", binwidth = 0.01) +
-  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
+  facet_wrap(~dataset, nrow = 2, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
   theme_bw() +
   theme(
     panel.grid.minor.x = element_blank(),
@@ -637,12 +663,20 @@ ggplot(data = proFileData_overallStats) +
     x = "work on this rank / average work across all ranks",
     y = "rank count"
   )
+ggsave(
+  filename = "perf-work-on-rank-by-avg-work.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 # How often was a rank the slowest one?
 ggplot(data = proFileData_overallStats) +
   geom_histogram(aes(timesIWasSlowest / numIterations), stat = "bin", binwidth = 0.01) +
   geom_vline(aes(xintercept = 1 / nRanks)) +
-  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
+  facet_wrap(~dataset, nrow = 2, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
   theme_bw() +
   theme(
     panel.grid.minor.x = element_blank(),
@@ -652,11 +686,19 @@ ggplot(data = proFileData_overallStats) +
     x = "fraction of iterations a rank took longest to finish work",
     y = "rank count"
   )
+ggsave(
+  filename = "perf-took-longest-to-finish.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 # Imbalance of work and communication
 ggplot(data = proFileData_overallStats) +
   geom_histogram(aes(nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI)), stat = "bin", binwidth = 0.05) +
-  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
+  facet_wrap(~dataset, nrow = 2, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
   scale_x_continuous(limits = c(0, 1)) +
   theme_bw() +
   theme(
@@ -667,6 +709,14 @@ ggplot(data = proFileData_overallStats) +
     x = "time spent doing work / total runtime",
     y = "rank count"
   )
+ggsave(
+  filename = "perf-fraction-of-time-working.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 ## Correlation of work/runtime ~ nRanks
 proFileData_overallStats_summary <- proFileData_overallStats %>%
@@ -760,10 +810,10 @@ proFileData_fractionalStats_summary <-
             min = min(midBin),
             max = max(midBin),
         ),
-        freq_quantiles(proFileData_fractionalStats, 0.00) %>% rename(q01 = midBin),
+        freq_quantiles(proFileData_fractionalStats, 0.05) %>% rename(q01 = midBin),
         by = c("rank", "processor", "timer", "dataset")
       ),
-      freq_quantiles(proFileData_fractionalStats, 1.00) %>% rename(q99 = midBin),
+      freq_quantiles(proFileData_fractionalStats, 0.95) %>% rename(q99 = midBin),
       by = c("rank", "processor", "timer", "dataset")
     ),
     freq_quantiles(proFileData_fractionalStats, 0.5) %>% rename(median = midBin),
@@ -810,6 +860,14 @@ ggplot() +
     y = "(time spent on work/comm. package) / (avg. time across all ranks)",
     colour = "Code Segment"
   )
+ggsave(
+  filename = "perf-time-as-fraction-of-avg.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 ### Are site-repeats the cause of imbalance? ###
 csvDirSiteRepeats <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/site-repeats"
@@ -871,6 +929,14 @@ ggplot(data = proFileData_siteRepeats) +
     x = "work on this rank / average work across all ranks",
     y = "rank count"
   )
+ggsave(
+  filename = "perf-work-by-avg-sr.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 # Imbalance of work and communication
 ggplot(data = proFileData_siteRepeats) +
@@ -886,6 +952,14 @@ ggplot(data = proFileData_siteRepeats) +
     x = "time spent doing work / total runtime",
     y = "rank count"
   )
+ggsave(
+  filename = "perf-work-vs-comm-sr.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 ggplot(data = proFileData_siteRepeats) %>%
   geom_bar(aes(x = nsSumInsideMPI + nsSumOutsideMPI))

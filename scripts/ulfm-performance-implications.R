@@ -4,6 +4,9 @@ library(ggplot2)
 library(dplyr)
 library(scales)
 
+plotDir <- "/home/lukas/Documents/Uni/Masterarbeit/thesis/figures"
+dataDir <- "/home/lukas/Documents/Uni/Masterarbeit/thesis/rawdata"
+
 # Comparing runtimes of different MPI implementations and fault detection mechanisms
 mpi_runtimes <- tribble(
   ~mpiVersion, ~dataset, ~runtime,
@@ -19,8 +22,8 @@ mpi_runtimes <- tribble(
 )
 
 mpi_runtimes <- inner_join(
-  runtimes,
-  runtimes %>% filter(mpiVersion == "OpenMPI-4.0") %>% rename(reference = runtime) %>% select(-mpiVersion),
+  mpi_runtimes,
+  mpi_runtimes %>% filter(mpiVersion == "OpenMPI-4.0") %>% rename(reference = runtime) %>% select(-mpiVersion),
   by = "dataset"
 )
 
@@ -29,12 +32,12 @@ mpi_runtimes <- mpi_runtimes %>% mutate(speedup = reference / runtime)
 # Plotting recovery time after failure
 recoveryTime <- read.csv("~/Documents/Uni/Masterarbeit/profiling/faultingSpeed.csv") %>% as_tibble()
 recoveryTimeLabels <- c(
-  dt = "detecor thread\n4 nodes á 7 ranks *",
-  dt_s = "detector thread, 1s timeout\n4 nodes á 7 ranks *",
-  dt_big = "detector thread\n20 nodes á 20 ranks",
-  full_dt = "detector thread\n4 nodes á 20 ranks",
-  full_no_dt = "no detector thrad\n4 nodes á 20 ranks",
-  no_dt = "no detector thread\n4 nodes á 7 ranks *"
+  dt = "hbt ON, 300 ms timeout\n4 nodes á 7 ranks *",
+  dt_s = "hbt ON, 1000 ms timeout\n4 nodes á 7 ranks *",
+  dt_big = "hbt ON, 300 ms timeout\n20 nodes á 20 ranks",
+  full_dt = "hbt ON, 300 ms timeout\n4 nodes á 20 ranks",
+  full_no_dt = "hbt OFF, 300 ms timeout\n4 nodes á 20 ranks",
+  no_dt = "hbt OFF, 300 ms timeout\n4 nodes á 7 ranks *"
 )
 
 ggplot(recoveryTime) +
@@ -74,6 +77,18 @@ ggplot(recoveryTime) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1.01)) +
   labs(x = "", y = "recovery time [s]")
+ggsave(
+  filename = "recovery-violin.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
+recoveryTime %>% group_by(method) %>% summarise(cnt = n())
+
+recoveryTime %>% group_by(method) %>% summarise(median = median(time), sd = sd(time))
+recoveryTime %>% filter(method == "dt_big", time > 2000)
 
 sr_runtimes <- tribble(
   ~siteRepeats, ~dataset, ~runtime,
