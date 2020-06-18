@@ -8,6 +8,7 @@ library(lemon)
 library(functional)
 library(forcats)
 library(svglite)
+library(scales)
 
 ### Helpers ###
 # Bin factor levels and helper funcitons
@@ -28,6 +29,22 @@ dataset2Label <- function(s) {
   ranksPerNode <- str_extract(s, "(?<=_)[:digit:]+(?=@)")
   nNodes <- str_extract(s, "(?<=@)[:digit:]+$")
   description <- paste(toupper(datatype), " dataset ", dataset, "\n", nNodes, " nodes with ", ranksPerNode, " ranks each", sep = "")
+  return(description)
+}
+
+dataset2LabelShort <- function(s) {
+  datatype <- str_extract(s, "^(dna|aa)")
+  dataset <- str_extract(s, "(?<=_)[:alnum:]+(?=_)")
+  dataset <- map_chr(dataset, function(dataset) {
+    mapping = data.frame(
+      from = c('rokasA1', 'rokasA4', 'rokasA8', 'rokasD1', 'rokasD2a', 'rokasD4', 'rokasD6', 'rokasD7', 'rokasD8', 'ShiD9'),
+      to   = c('NagyA1',  'ChenA4',  'YangA8',  'SongD1',  'MisoD2a',  'XiD4',    'PrumD6',  'TarvD7',  'PeteD8',  'ShiD9')
+    )
+    as.character(factor(dataset, levels = mapping$from, labels = mapping$to))
+  })
+  ranksPerNode <- as.integer(str_extract(s, "(?<=_)[:digit:]+(?=@)"))
+  nNodes <- as.integer(str_extract(s, "(?<=@)[:digit:]+$"))
+  description <- paste(dataset, " (", toupper(datatype), "), ", nNodes * ranksPerNode, " ranks", sep = "")
   return(description)
 }
 
@@ -94,9 +111,10 @@ proFileDataRelative_timeless$q100 <- by(proFileDataRelative_timeless, 1:nrow(pro
 
 ### Plotting ###
 
-datasetLabels <- unique(proFileDataRelative_timeless$dataset)
-names(datasetLabels) <- datasetLabels
-datasetLabels <- map_chr(datasetLabels, dataset2Label)
+datasetLabelsOrig <- unique(proFileDataRelative_timeless$dataset)
+names(datasetLabelsOrig) <- datasetLabelsOrig
+datasetLabels <- map_chr(datasetLabelsOrig, dataset2Label)
+datasetLabelsShort <- map_chr(datasetLabelsOrig, dataset2LabelShort)
 
 datasets <- unique(proFileDataRelative_timeless$dataset)
 maxRanks <- map_int(datasets, function(ds) {
@@ -208,7 +226,7 @@ ggplot() +
     color = "black",
     size = 0.5
   ) +
-  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) +
+  facet_wrap(~dataset, ncol = 2, scale = "free", labeller = labeller(dataset = datasetLabelsShort)) +
   scale_y_log10(
     breaks = yBreaksGenerator,
     labels = yLabelGenerator
@@ -235,7 +253,7 @@ ggsave(
   path = plotDir,
   device = "pdf",
   width = 16.7976,
-  height = 10.4332,
+  height = 12.4332,
   units = "cm"
 )
 
@@ -264,7 +282,7 @@ ggplot(
     ),
     size = 2.5
   ) + 
-  facet_wrap(~processor, scale = "free") +
+  facet_wrap(~processor, ncol = 1, scale = "free") +
   scale_y_log10(
     breaks = yBreaksGenerator,
     labels = yLabelGenerator
@@ -277,7 +295,9 @@ ggplot(
   theme_bw() +
   theme(
     panel.grid.minor.x = element_blank(),
-    panel.grid.major.x = element_blank()
+    panel.grid.major.x = element_blank(),
+    strip.background = element_blank(),
+    strip.text.x = element_blank()
   ) +
   scale_color_manual(values = rep(twentyColors, 4)) +
   guides(color = FALSE) +
@@ -291,7 +311,7 @@ ggsave(
   path = plotDir,
   device = "pdf",
   width = 16.7976,
-  height = 10.4332,
+  height = 18.7976,
   units = "cm"
 )
 
@@ -427,10 +447,12 @@ proFileDataAbsolute$eventCount <- proFileDataAbsolute %>%
 proFileDataAbsolute$medianBin <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.5))
 proFileDataAbsolute$medianBin <- factor(proFileDataAbsolute$medianBin, levels = binFactorLevels)
 proFileDataAbsolute$q00 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.00))
+proFileDataAbsolute$q01 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.01))
 proFileDataAbsolute$q05 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.05))
 proFileDataAbsolute$q25 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.25))
 proFileDataAbsolute$q75 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.75))
 proFileDataAbsolute$q95 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.95))
+proFileDataAbsolute$q99 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 0.99))
 proFileDataAbsolute$q100 <- by(proFileDataAbsolute, 1:nrow(proFileDataAbsolute), Curry(hist_quantile_bin, quantile = 1.00))
 
 
@@ -462,11 +484,11 @@ names(maxRanks) <- datasets
 ggplot() +
   geom_linerange(
     data = filter(proFileDataAbsolute, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q01), ymax = upperBinBorder(q99), x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileDataAbsolute, timer == "Work"),
-    mapping = aes(ymin = lowerBinBorder(q05), ymax = upperBinBorder(q95), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = lowerBinBorder(q01), ymax = upperBinBorder(q99), x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileDataAbsolute, timer == "MPI_Allreduce"),
@@ -480,7 +502,7 @@ ggplot() +
     color = "black",
     size = 0.5
   ) +
-  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) +
+  facet_wrap(~dataset, ncol = 2, scale = "free", labeller = labeller(dataset = datasetLabelsShort)) +
   scale_y_log10(
     breaks = yBreaksGenerator,
     labels = yLabelGenerator
@@ -499,7 +521,8 @@ ggplot() +
   guides(color = FALSE) +
   labs(
     x = "rank",
-    y = "range of absolute time spent in code segment (0.05 to 0.95 quantiles)",
+    #y = "range of absolute time spent in code segment (0.05 to 0.95 quantiles)",
+    y = "time spent in code segment",
     colour = "Code Segment"
   )
 ggsave(
@@ -507,7 +530,7 @@ ggsave(
   path = plotDir,
   device = "pdf",
   width = 16.7976,
-  height = 10.4332,
+  height = 12.4332,
   units = "cm"
 )
 
@@ -650,11 +673,29 @@ proFileData_overallStats <- inner_join(
     summarise(nRanks = max(rank) + 1)
 )
 
+integer_breaks <- function(n = 5, ...) {
+  fxn <- function(x) {
+    breaks <- floor(pretty(x, n, ...))
+    names(breaks) <- attr(breaks, "labels")
+    breaks
+  }
+  return(fxn)
+}
+
 # Imbalance of work across ranks
 ggplot(data = proFileData_overallStats) +
   geom_histogram(aes(nsSumWork / avgWork), stat = "bin", binwidth = 0.01) +
-  facet_wrap(~dataset, nrow = 2, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
+  facet_wrap(
+    ~dataset,
+    nrow = 2,
+    scale = "free",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      )
+  )) + 
   theme_bw() +
+  scale_y_continuous(breaks = integer_breaks()) +
   theme(
     panel.grid.minor.x = element_blank(),
     panel.grid.major.x = element_blank()
@@ -676,7 +717,15 @@ ggsave(
 ggplot(data = proFileData_overallStats) +
   geom_histogram(aes(timesIWasSlowest / numIterations), stat = "bin", binwidth = 0.01) +
   geom_vline(aes(xintercept = 1 / nRanks)) +
-  facet_wrap(~dataset, nrow = 2, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
+  facet_wrap(
+    ~dataset,
+    nrow = 2,
+    scale = "free",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      )
+  )) + 
   theme_bw() +
   theme(
     panel.grid.minor.x = element_blank(),
@@ -698,7 +747,15 @@ ggsave(
 # Imbalance of work and communication
 ggplot(data = proFileData_overallStats) +
   geom_histogram(aes(nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI)), stat = "bin", binwidth = 0.05) +
-  facet_wrap(~dataset, nrow = 2, scale = "free", labeller = labeller(dataset = datasetLabels)) + 
+  facet_wrap(
+    ~dataset,
+    nrow = 2,
+    scale = "free",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      )
+  )) + 
   scale_x_continuous(limits = c(0, 1)) +
   theme_bw() +
   theme(
@@ -823,11 +880,11 @@ proFileData_fractionalStats_summary <-
 ggplot() +
   geom_linerange(
     data = filter(proFileData_fractionalStats_summary, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = q01, ymax = q99, x = rank, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = max(q01, 1), ymax = q99, x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileData_fractionalStats_summary, timer == "Work"),
-    mapping = aes(ymin = q01, ymax = q99, x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = max(q01, 1), ymax = q99, x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileData_fractionalStats_summary, timer == "MPI_Allreduce"),
@@ -841,8 +898,8 @@ ggplot() +
     color = "black",
     size = 0.5
   ) +
-  facet_wrap(~dataset, scale = "free", labeller = labeller(dataset = datasetLabels)) +
-  scale_y_log10(breaks = scales::pretty_breaks(n = 6)) +
+  facet_wrap(~dataset, ncol = 2, scale = "free", labeller = labeller(dataset = datasetLabelsShort)) +
+  scale_y_log10(limits = c(1, NA)) +
   scale_x_continuous(
     breaks = xBreaksGenerator,
     labels = xLabelsGenerator,
@@ -857,7 +914,8 @@ ggplot() +
   guides(color = FALSE) +
   labs(
     x = "rank",
-    y = "(time spent on work/comm. package) / (avg. time across all ranks)",
+    #y = "(time spent on work/comm. package) / (avg. time across all ranks)",
+    y = "time(rank) / time(avg)",
     colour = "Code Segment"
   )
 ggsave(
@@ -865,9 +923,20 @@ ggsave(
   path = plotDir,
   device = "pdf",
   width = 16.7976,
-  height = 10.4332,
+  height = 16.7976,
   units = "cm"
 )
+
+# Summary
+proFileData_fractionalStats_summary %>%
+  filter(timer == "Work") %>%
+  group_by(dataset) %>%
+  summarise(
+    min = min(min),
+    max = max(max),
+    q01 = min(q01),
+    q99 = max(q99)
+  )
 
 ### Are site-repeats the cause of imbalance? ###
 csvDirSiteRepeats <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/site-repeats"
@@ -918,8 +987,16 @@ proFileData_siteRepeats <- inner_join(
 
 # Imbalance of work across ranks
 ggplot(data = proFileData_siteRepeats) +
-  geom_histogram(aes(nsSumWork / avgWork), stat = "bin", binwidth = 0.01) +
-  facet_grid(vars(sr), vars(dataset), scale = "free_y", labeller = labeller(dataset = datasetLabels)) + 
+  geom_histogram(aes(x = nsSumWork / avgWork, y = ..density..), stat = "bin", binwidth = 0.01) +
+  facet_grid(
+    vars(sr), vars(dataset),
+    #scale = "fr",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      ),
+      sr = c(sr = "site-repeats ON", `no-sr` = "site-repeats OFF")
+  )) + 
   theme_bw() +
   theme(
     panel.grid.minor.x = element_blank(),
@@ -927,7 +1004,7 @@ ggplot(data = proFileData_siteRepeats) +
   ) +
   labs(
     x = "work on this rank / average work across all ranks",
-    y = "rank count"
+    y = "fraction of ranks [%]"
   )
 ggsave(
   filename = "perf-work-by-avg-sr.pdf",
@@ -940,8 +1017,16 @@ ggsave(
 
 # Imbalance of work and communication
 ggplot(data = proFileData_siteRepeats) +
-  geom_histogram(aes(nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI)), stat = "bin", binwidth = 0.05) +
-  facet_grid(vars(sr), vars(dataset), scale = "free_y", labeller = labeller(dataset = datasetLabels)) + 
+  geom_histogram(aes(x = nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI), y = ..density..), stat = "bin", binwidth = 0.05) +
+  facet_grid(
+    vars(sr), vars(dataset),
+    #scale = "fr",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      ),
+      sr = c(sr = "site-repeats ON", `no-sr` = "site-repeats OFF")
+  )) + 
   scale_x_continuous(limits = c(0, 1)) +
   theme_bw() +
   theme(
@@ -961,5 +1046,5 @@ ggsave(
   units = "cm"
 )
 
-ggplot(data = proFileData_siteRepeats) %>%
+ggplot(data = proFileData_siteRepeats) +
   geom_bar(aes(x = nsSumInsideMPI + nsSumOutsideMPI))

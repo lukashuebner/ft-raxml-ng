@@ -48,8 +48,8 @@ callsPerSecondData <-
 
 callsPerSecondData$dataset <-
   factor(
-    map_chr(callsPerSecondData$dataset, dataset2Label),
-    levels = dataset2Label(datasetLevels))
+    map_chr(callsPerSecondData$dataset, dataset2LabelShort),
+    levels = dataset2LabelShort(datasetLevels))
 
 totalRuntime <- callsPerSecondData %>%
   group_by(timer, dataset) %>%
@@ -77,6 +77,14 @@ callsPerSecondData %>%
     y = "number of MPI_Allreduce calls per second",
     colour = "dataset"
   )
+ggsave(
+  filename = "perf-calls-per-second-by-dataset.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
 
 # How well does weight per core correlate with number of MPI_Allreduce calls per second?
 callsAndWeight <- callsPerSecondData %>%
@@ -123,7 +131,7 @@ callsPerSecondData_dMPI <-
 
 callsPerSecondData_dMPI$dataset <-
   factor(
-    map_chr(callsPerSecondData_dMPI$dataset, dataset2Label),
+    map_chr(callsPerSecondData_dMPI$dataset, dataset2LabelShort),
     levels = dataset2Label(datasetLevels))
 
 totalRuntime <- callsPerSecondData_dMPI %>%
