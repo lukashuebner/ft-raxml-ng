@@ -120,7 +120,7 @@ public:
 
   #ifdef _RAXML_MPI
   // Simulate failures via MPI_Comm_split instead of signaling ranks with SIGKILL
-  #define RAXML_FAILURES_SIMULATE
+  //  #define RAXML_FAILURES_SIMULATE
   // Will throw a RankFailureException and repair the communicator if a rank failed
   static void check_for_rank_failure();
   // For testing purposes; the rank with id <rank> will fail when the fail function is called the n-th time on this rank
@@ -206,6 +206,7 @@ private:
   static std::string mpi_err_to_string(int errorCode);
   static int failureCounter;
   static bool _simulate_failure;
+  static int iFail_at_call;
   static float _randomized_failure_prob;
 #endif
 

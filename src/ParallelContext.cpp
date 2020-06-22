@@ -12,6 +12,9 @@
 #include <cassert>
 #include <iostream>
 
+// TODO Remove, for testing with failure schedule only
+#include <iostream>
+
 using namespace std;
 
 // This is just a default size; the buffer will be resized later according to #part and #threads
@@ -71,9 +74,12 @@ ThreadGroup& ParallelContext::thread_group(size_t id)
 int ParallelContext::failureCounter = 0;
 bool ParallelContext::_simulate_failure = false;
 float ParallelContext::_randomized_failure_prob = 0;
+int ParallelContext::iFail_at_call = -1;
+
 void ParallelContext::fail(size_t rankId, int on_nth_call, bool reset) {
   // Everyone uses the same counter, this prevent another rank killing himself after the rank ids have been reassigned
   failureCounter++;
+  //log("this is failure " + to_string(failureCounter) + " I will fail on " + to_string(iFail_at_call));
   if (on_nth_call < 0 || failureCounter == on_nth_call) {
     #ifdef RAXML_FAILURES_SIMULATE
     _simulate_failure = true;
@@ -133,6 +139,20 @@ void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
   detect_num_nodes();
 //    printf("nodes: %lu\n", _num_nodes);
 
+  // TODO: Remove, obviously for testing only
+  // Load failure schedule
+  ifstream failure_schedule("failure.schedule", ios::in);
+  string line;
+  while (getline(failure_schedule, line)) {
+    istringstream iss(line);
+    size_t rank, call_no;
+    iss >> rank >> call_no;
+    if (rank == rank_id()) {
+      iFail_at_call = call_no;
+      break;
+    }
+  }
+  log("I will fail at call " + to_string(iFail_at_call));
 #else
   RAXML_UNUSED(argc);
   RAXML_UNUSED(argv);
@@ -204,6 +224,10 @@ void ParallelContext::update_world_parameters() {
 void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 {
   assert(_comm != MPI_COMM_NULL);
+  failureCounter++;
+  if (failureCounter == iFail_at_call) { // Simulate my failure when my time has come
+    raise(SIGKILL);
+  }
 
   #ifdef RAXML_FAILURES_SIMULATE
 
@@ -223,7 +247,7 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
     assert(num_ranks() == 1 || oldRankId != rank_id());
     assert(num_ranks() != 0 || oldRankId == rank_id());
 
-    // log("Rank failure at:");
+    log("Rank failure at:");
     // print_stacktrace();
     throw RankFailureException();
   } else {
