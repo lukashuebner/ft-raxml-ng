@@ -75,12 +75,12 @@ stats_long <- stats_long %>% group_by(dataset, timer) %>%
 D9_profile <- stats_long %>% select(-starts_with("ns")) %>% filter(dataset == "dna_ShiD9_20@1") %>% arrange(desc(msAvg))
 A8_profile <- stats_long %>% select(-starts_with("ns")) %>% filter(dataset == "aa_rokasA8_20@4") %>% arrange(desc(msAvg))
 D2a_profile <- stats_long %>% select(-starts_with("ns")) %>% filter(dataset == "dna_rokasD2a_20@1") %>% arrange(desc(msAvg))
-print.xtable(xtable(D9_profile), type = "latex", file = paste(rawDir, "ft-profile-D9.tex"), sep = "/")
-print.xtable(xtable(A8_profile), type = "latex", file = paste(rawDir, "ft-profile-A8.tex"), sep = "/")
-print.xtable(xtable(D2a_profile), type = "latex", file = paste(rawDir, "ft-profile-D2a.tex"), sep = "/")
+print.xtable(xtable(D9_profile), type = "latex", file = paste(rawDir, "ft-profile-D9.tex", sep = "/"))
+print.xtable(xtable(A8_profile), type = "latex", file = paste(rawDir, "ft-profile-A8.tex", sep = "/"))
+print.xtable(xtable(D2a_profile), type = "latex", file = paste(rawDir, "ft-profile-D2a.tex", sep = "/"))
 
 LoadMSA_profile <- stats_long %>% select(-starts_with("ns")) %>% filter(timer == "LoadAssignmentData")
-print.xtable(xtable(LoadMSA_profile), type = "latex", file = paste(rawDir, "ft-profile-loadMSA.tex"), sep = "/")
+print.xtable(xtable(LoadMSA_profile), type = "latex", file = paste(rawDir, "ft-profile-loadMSA.tex", sep = "/"))
 
 ggplot() +
   geom_errorbar(
@@ -226,5 +226,3 @@ ggsave(
   height = 10.4332,
   units = "cm"
 )
-
-  
