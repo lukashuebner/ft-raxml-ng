@@ -75,7 +75,7 @@ void ParallelContext::fail(size_t rankId, int on_nth_call, bool reset) {
   // Everyone uses the same counter, this prevent another rank killing himself after the rank ids have been reassigned
   failureCounter++;
   if (on_nth_call < 0 || failureCounter == on_nth_call) {
-    #ifdef RAXML_FAILURES_SIMULATE
+    #ifdef RAXML_SIMULATE_FAILURES
     _simulate_failure = true;
     RAXML_UNUSED(rankId);
     #else
@@ -205,7 +205,7 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 {
   assert(_comm != MPI_COMM_NULL);
 
-  #ifdef RAXML_FAILURES_SIMULATE
+  #ifdef RAXML_SIMULATE_FAILURES
 
   if (_simulate_failure) {
     size_t oldRankId = rank_id();
