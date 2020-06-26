@@ -108,29 +108,29 @@ public:
                                       size_t sizeOfBuffer, size_t root);
 
   // If a rank failure occurs during this call, detect_num_nodes() will be called in the failure
-  // mitigation routine which itself will call mpi_gather_custom. In this case, we cannot use 
+  // mitigation routine which itself will call mpi_gather_custom. In this case, we cannot use
   // parallel buf, as we would override its contents.
   static void mpi_gather_custom(std::function<int(void*,int)> prepare_send_cb,
                                 std::function<void(void*,int)> process_recv_cb,
                                 bool use_parallel_buf = true);
-                                
+
   static std::shared_ptr<std::vector<double>> mpi_allgather(double value);
 
   static void parallel_reduce(double * data, size_t size, int op);
 
   #ifdef _RAXML_MPI
   // Simulate failures via MPI_Comm_split instead of signaling ranks with SIGKILL
-  //  #define RAXML_FAILURES_SIMULATE
+  #define RAXML_SIMULATE_FAILURES
   // Will throw a RankFailureException and repair the communicator if a rank failed
   static void check_for_rank_failure();
   // For testing purposes; the rank with id <rank> will fail when the fail function is called the n-th time on this rank
   static void fail(size_t rank, int on_nth_call = 1, bool reset = false);
   static void set_failure_prob(float probability);
   #endif
-    
+
   // Will sleep until a debugger attaches and changes a local variable using for example
   // (gdb) set var i = 1
-  static void waitForDebugger(); 
+  static void waitForDebugger();
 
   static bool master() { return proc_id() == 0; }
   static bool master_rank() { return _rank_id == 0; }
@@ -175,7 +175,7 @@ public:
   private:
     LockType _lock;
   };
-  
+
   class GroupLock
   {
   public:
@@ -198,6 +198,8 @@ public:
     }
   };
 
+  static long fail_every_nth_call;
+  static int max_failures_to_simulate;
 private:
 #ifdef _RAXML_MPI
   // Has the MPI subsystem been finalized?
@@ -207,6 +209,7 @@ private:
   static int failureCounter;
   static bool _simulate_failure;
   static int iFail_at_call;
+  static int simulated_failures;
   static float _randomized_failure_prob;
 #endif
 
@@ -245,8 +248,10 @@ private:
 // Some assertions communicate over the network (for example to compute the loglh)
 // They may not handle failures correctly and should be disabled when simulating
 // failures.
-#ifdef RAXML_FAILURES_SIMULATE
+#ifdef RAXML_SIMULATE_FAILURES
+#ifndef NDEBUG
 #define NON_FAILURE_TOLERANT_ASSERTS
+#endif
 #endif
 
 #endif /* RAXML_PARALLELCONTEXT_HPP_ */

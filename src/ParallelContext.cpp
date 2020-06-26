@@ -75,13 +75,17 @@ int ParallelContext::failureCounter = 0;
 bool ParallelContext::_simulate_failure = false;
 float ParallelContext::_randomized_failure_prob = 0;
 int ParallelContext::iFail_at_call = -1;
+long ParallelContext::fail_every_nth_call = 0;
+int ParallelContext::max_failures_to_simulate = numeric_limits<int>::max();
+int ParallelContext::simulated_failures = 0;
 
 void ParallelContext::fail(size_t rankId, int on_nth_call, bool reset) {
+  // ParallelContext::log("FailureCounter: " + to_string(failureCounter));
   // Everyone uses the same counter, this prevent another rank killing himself after the rank ids have been reassigned
   failureCounter++;
   //log("this is failure " + to_string(failureCounter) + " I will fail on " + to_string(iFail_at_call));
   if (on_nth_call < 0 || failureCounter == on_nth_call) {
-    #ifdef RAXML_FAILURES_SIMULATE
+    #ifdef RAXML_SIMULATE_FAILURES
     _simulate_failure = true;
     RAXML_UNUSED(rankId);
     #else
@@ -102,7 +106,7 @@ void ParallelContext::set_failure_prob(float probability) {
 #endif
 
 #ifdef _RAXML_PROFILE
-  auto profilerRegister = ProfilerRegister::createInstance("profile_2.csv");
+auto profilerRegister = ProfilerRegister::createInstance("profile_2.csv");
 auto allreduceTimer = profilerRegister->registerProfiler("MPI_Allreduce");
 auto workTimer = profilerRegister->registerProfiler("Work");
 bool profilingHeaderWritten = false;
@@ -141,7 +145,7 @@ void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
 
   // TODO: Remove, obviously for testing only
   // Load failure schedule
-  ifstream failure_schedule("failure.schedule", ios::in);
+  /* ifstream failure_schedule("failure.schedule", ios::in);
   string line;
   while (getline(failure_schedule, line)) {
     istringstream iss(line);
@@ -153,6 +157,7 @@ void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
     }
   }
   log("I will fail at call " + to_string(iFail_at_call));
+  */
 #else
   RAXML_UNUSED(argc);
   RAXML_UNUSED(argv);
@@ -224,12 +229,13 @@ void ParallelContext::update_world_parameters() {
 void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 {
   assert(_comm != MPI_COMM_NULL);
+  /*
   failureCounter++;
   if (failureCounter == iFail_at_call) { // Simulate my failure when my time has come
     raise(SIGKILL);
   }
-
-  #ifdef RAXML_FAILURES_SIMULATE
+  */
+  #ifdef RAXML_SIMULATE_FAILURES
 
   if (_simulate_failure) {
     size_t oldRankId = rank_id();
@@ -239,6 +245,7 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
     LOG_DEBUG << "Simulating failure" << endl;
 
     _simulate_failure = false; // Do this *before* calling detect_num_nodes, which uses ft-MPI calls 
+    simulated_failures++;
     MPI_Comm_split(_comm, 0, (rank_id() + 1) % num_ranks(), &newComm);
     MPI_Comm_free(&_comm);
     _comm = newComm;
@@ -661,6 +668,12 @@ void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t s
 {
   auto profilerRegister = ProfilerRegister::getInstance();
   profilerRegister->endWorkTimer();
+
+  // Maybe simulate failure
+  if (simulated_failures < max_failures_to_simulate && fail_every_nth_call > 0) {
+    fail(0, fail_every_nth_call, true);
+  }
+
 
   if (_randomized_failure_prob > 0) {
     uint32_t r = 0;

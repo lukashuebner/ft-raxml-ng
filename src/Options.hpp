@@ -88,6 +88,10 @@ public:
 
   unsigned int consense_cutoff;
 
+  /* For simulating failures */
+  long fail_every;
+  int max_failures;
+
   /* I/O */
   std::string tree_file;
   std::string constraint_tree_file;
