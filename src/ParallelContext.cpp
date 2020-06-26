@@ -4,7 +4,7 @@
 #include "Options.hpp"
 
 #ifdef _RAXML_MPI
-#include <mpi-ext.h>
+//#include <mpi-ext.h>
 #include "Profiler.hpp"
 #endif
 
