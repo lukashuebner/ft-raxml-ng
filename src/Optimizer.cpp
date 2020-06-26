@@ -1,7 +1,5 @@
 #include "Optimizer.hpp"
 
-#define MINIMAL_RUN
-
 using namespace std;
 
 Optimizer::Optimizer (const Options &opts) :
@@ -35,11 +33,6 @@ double Optimizer::optimize_model(TreeInfo& treeinfo, double lh_epsilon)
 
     iter_num++;
     LOG_DEBUG << "Iteration " << iter_num <<  ": logLH = " << new_loglh << endl;
-
-    #ifdef MINIMAL_RUN
-    // TODO: Remove this, this if for performance evaluation only!
-    return new_loglh;
-    #endif
   }
   while (new_loglh - cur_loglh > lh_epsilon);
 
@@ -182,11 +175,6 @@ double Optimizer::optimize_topology(TreeInfo& treeinfo, CheckpointManager& cm)
 
       /* optimize ALL branches */
       loglh = treeinfo.optimize_branches(_lh_epsilon, 1);
-
-      #ifdef MINIMAL_RUN
-      // TODO: Remove this, this is for performance evaluation only
-      return loglh; // Skip the remaining steps
-      #endif
     }
     while (loglh - old_loglh > _lh_epsilon);
   }
