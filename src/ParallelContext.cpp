@@ -273,7 +273,12 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 void ParallelContext::check_for_rank_failure() {
   assert(!mpi_finalized());
   #ifdef RAXML_SIMULATE_FAILURES
-  fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
+  //fault_tolerant_mpi_call([&] () { return MPI_Barrier(_comm); });
+  // Simulate the runtime of MPI_Comm_agree
+  uint64_t failedRanks[4];
+  MPI_Allreduce(MPI_IN_PLACE, failedRanks, 4, MPI_UINT64_T, MPI_LOR, _comm);
+  MPI_Allreduce(MPI_IN_PLACE, failedRanks, 4, MPI_UINT64_T, MPI_LOR, _comm);
+  MPI_Allreduce(MPI_IN_PLACE, failedRanks, 4, MPI_UINT64_T, MPI_LOR, _comm);
   #else
   int flag = 42;
   fault_tolerant_mpi_call([&] () { return MPIX_Comm_agree(_comm, &flag); });
@@ -823,4 +828,4 @@ void ParallelContext::mpi_gather_custom(std::function<int(void*,int)> prepare_se
   RAXML_UNUSED(prepare_send_cb);
   RAXML_UNUSED(process_recv_cb);
 #endif
-}
+}}}
