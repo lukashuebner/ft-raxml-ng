@@ -14,6 +14,7 @@ struct Range
   Range(size_t s, size_t l) : start(s), length(l) {}
 };
 
+typedef Range SiteRange;
 typedef std::vector<Range> RangeList;
 
 class MSA
