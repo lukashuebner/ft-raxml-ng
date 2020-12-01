@@ -40,8 +40,10 @@ endif()
 
 # set these flags globally for all subprojects (libpll etc.)
 set (CMAKE_CXX_FLAGS_DEBUG    "-O3 -g" CACHE INTERNAL "")
+#set (CMAKE_CXX_FLAGS_DEBUG "-Og -g" CACHE INTERNAL "")
 set (CMAKE_CXX_FLAGS_RELEASE  "-O3"    CACHE INTERNAL "")
 set (CMAKE_C_FLAGS_DEBUG    "-O3 -g" CACHE INTERNAL "")
+#set (CMAKE_C_FLAGS_DEBUG "-Og -g" CACHE INTERNAL "")
 set (CMAKE_C_FLAGS_RELEASE  "-O3"    CACHE INTERNAL "")
 
 project (raxml-ng C CXX)
@@ -153,3 +155,5 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/src)
 
 enable_testing()
 add_subdirectory(${PROJECT_SOURCE_DIR}/test/src)
+
+add_subdirectory(${PROJECT_SOURCE_DIR}/benchmark/src)

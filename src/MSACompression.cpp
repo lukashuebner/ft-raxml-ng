@@ -389,16 +389,18 @@ size_t MSATreeCompression::compress(const MSA& msa) {
     // Compress tree msa column by msa column
     NodeStates node_states(_tree.num_nodes());
     size_t bits_written = 0;
+    uint64_t changes_across_all_sites = 0;
     for (size_t position = 0; position < msa.length(); position++) {
         // Save current site's index in the output stream to enable random acces while decompressing
         _site_idx_in_encoding->push_back(bits_written);
 
         // Build ancestral states of inner nodes 
-        build_ancestral_states(msa, position, node_states);
+        uint64_t nChanges = build_ancestral_states(msa, position, node_states);
+        changes_across_all_sites += nChanges;
 
         // Traverse along the tree, storing only the changes along the tree
         // and the root sequence
-        _tree.traverse([this, &node_states, &bits_written](PllTree::Node * node) -> bool {
+        _tree.traverse([this, &node_states, &bits_written, &nChanges](PllTree::Node * node) -> bool {
             IUPAC_DNA_16BIT my_state = node_states[node->node_id()];
             if (node->is_root()) {
                 // Store character at root
@@ -416,15 +418,20 @@ size_t MSATreeCompression::compress(const MSA& msa) {
                     );
                     _encoding_of_changes->write_bits(change_encoder.encoding(), change_encoder.bit_length());
                     bits_written += change_encoder.bit_length();
+                    nChanges--;
                 }
             }
             return true;
         }, PllTree::TRAVERSAL_MODE::PREORDER);
 
+        assert(nChanges == 0);
         // Reset node states
         node_states.reset();
     }
     
+    uint64_t changes_written = bits_written / ChangeEncoder::bit_length(_tree.num_nodes() - 1);
+    assert(changes_across_all_sites == changes_written);
+
     // Guard element, like for adjacency arrays
     _site_idx_in_encoding->push_back(bits_written);
 
@@ -721,7 +728,7 @@ size_t PllTree::Node::node_id() const {
     return _pll_node->node_index;
 }
 
-void MSATreeCompression::build_ancestral_states(const MSA& msa, size_t position, MSATreeCompression::NodeStates& node_states) {
+uint64_t MSATreeCompression::build_ancestral_states(const MSA& msa, size_t position, MSATreeCompression::NodeStates& node_states) {
     assert(node_states.size() == 2 * msa.size() - 1);
     assert(node_states.size() == _tree.num_nodes());
     
@@ -760,7 +767,8 @@ void MSATreeCompression::build_ancestral_states(const MSA& msa, size_t position,
 
     // Phase 2: Select ancestral states
     // cout << "### Phase 2 starts" << endl;
-    _tree.traverse([this, &node_states](PllTree::Node * node) -> bool {
+    uint64_t nChanges = 0;
+    _tree.traverse([this, &node_states, &nChanges](PllTree::Node * node) -> bool {
         if (node->is_root()) {
             node_states[*node] = node_states.choose_random_state(node_states[*node]);
             //cout << "I'm the root node, I have states " << node_states[*node]
@@ -784,6 +792,7 @@ void MSATreeCompression::build_ancestral_states(const MSA& msa, size_t position,
                 assert(valid(node_states[*node]));
                 assert(!node->is_leaf() || node_states[*node] == node_states.choose_random_state(*node));
                 node_states.choose_random_state(*node);
+                nChanges++;
             }
             // cout << "-> I choose " << node_states[*node]
             //      << endl;
@@ -798,6 +807,7 @@ void MSATreeCompression::build_ancestral_states(const MSA& msa, size_t position,
     //     }
     //     return true;
     // }, PllTree::TRAVERSAL_MODE::INORDER);
+    return nChanges;
 }
 
 void PllTree::traverse(function<bool(PllTree::Node *)> callback_on_node_visit, TRAVERSAL_MODE mode) {

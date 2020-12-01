@@ -321,7 +321,7 @@ class MSATreeCompression {
     // the numver of tips of the compression tree.
     size_t num_sequences() const { return _num_sequences; }
 
-    void build_ancestral_states(const MSA& msa, size_t position, MSATreeCompression::NodeStates& node_states);
+    uint64_t build_ancestral_states(const MSA& msa, size_t position, MSATreeCompression::NodeStates& node_states);
 
     private:
     PllTree _tree;
