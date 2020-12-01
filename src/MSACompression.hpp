@@ -148,7 +148,6 @@ class PllTree : public BasicTree {
         PllTree * const _tree = nullptr;
     };
 
-    PllTree(const Tree& tree);
     PllTree(const pll_rtree_t * tree);
     PllTree(const std::string& newick_string);
     ~PllTree();
@@ -162,10 +161,7 @@ class PllTree : public BasicTree {
     virtual size_t num_branches() const { return _num_tips ? _num_tips + _num_tips - 2 : 0; };
 
     private:
-    // TODO update comment
-    // If we later determine through benchmarking, that creating Node objects all the time is too slow,
-    // we can more easily cache them if we always use this function to "create" a new Node object.
-    // We'll have to remove the const then, though.
+    // This function will cache Node objects and thus avoid recreating them each time they're requested.
     Node * create_Node_from_pll_node(const pll_rnode_t * pll_node);
 
     const pll_rtree_t * const _tree;
@@ -313,7 +309,7 @@ class MSATreeCompression {
     // plus the length of the root sequence encoding).
     size_t compress(const MSA& msa);
     
-    // TODO support partitioned MSAs, check if ranges are properly suppoted
+    // TODO support partitioned MSAs
     // Builds and populates a MSA with the stored data
     std::shared_ptr<MSA> decompress(RangeList& range_list);
 
@@ -331,17 +327,4 @@ class MSATreeCompression {
     std::shared_ptr<std::vector<size_t>> _site_idx_in_encoding = nullptr;
 
     MSATreeCompression();
-};
-
-/*
- * Container for in-memory compressed MSA, handles compression, decompression and memory management.
- */
-class CompressedMSA {
-    public:
-    CompressedMSA(const MSA& msa, const Tree& tree);
-    const MSA& decompress();
-
-    private:
-    MSATreeCompression _tree_compression;
-    void compress();
 };

@@ -855,14 +855,6 @@ void PllTree::traverse(function<bool(PllTree::Node *)> callback_on_node_visit, T
     libpll_check_error("Error traversing tree");
 }
 
-CompressedMSA::CompressedMSA(const MSA& msa, const Tree& tree) :
-    _tree_compression(tree)
-{
-    _tree_compression.compress(msa);
-}
-
-const MSA& CompressedMSA::decompress() { return *(new MSA()); };
-
 uint8_t MSATreeCompression::ChangeEncoding::bit_length() const {
     return bits_for_edge_id() + IUPAC_DNA_CODE_LENGTH;
 }
