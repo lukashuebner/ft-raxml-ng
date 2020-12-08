@@ -419,9 +419,9 @@ double TreeInfo::fault_tolerant_call(string parameter, const function<double()> 
   double new_loglh = 1;
 
   #ifdef NON_FAILURE_TOLERANT_ASSERTS
-  _profiler_register->startWorkTimer();
+  //_profiler_register->startWorkTimer();
   double pre_fail_loglh = pllmod_treeinfo_compute_loglh(_pll_treeinfo, 0);
-  _profiler_register->endWorkTimer();
+  //_profiler_register->endWorkTimer();
   #endif
 
   for (;;) {
@@ -434,19 +434,19 @@ double TreeInfo::fault_tolerant_call(string parameter, const function<double()> 
 
     try{
       assert(_profiler_register != nullptr);
-      _profiler_register->startWorkTimer();
+      //_profiler_register->startWorkTimer();
 
       // Run optimization code during which rank failure might occur
       new_loglh = optimizer(); 
       // Check whether a rank failure occurred but not all ranks got notified yet.
       ParallelContext::check_for_rank_failure();
       
-      _profiler_register->endWorkTimer();
+      //_profiler_register->endWorkTimer();
 
       mini_checkpoint(changes_model, changes_tree);
       break;
     } catch (ParallelContext::RankFailureException& e) {
-      _profiler_register->discardWorkTimer();
+      //_profiler_register->discardWorkTimer();
       LOG_ERROR << "Rank failure during " << parameter << endl;
       update_to_new_assignment();
       LOG_PROGR << "Restoration completed successfully." << endl;
@@ -457,9 +457,9 @@ double TreeInfo::fault_tolerant_call(string parameter, const function<double()> 
           assert(beforeFailureTree == to_newick_string_rooted(Tree(*(_pll_treeinfo->tree)), 0));
         }
         #ifdef NON_FAILURE_TOLERANT_ASSERTS
-          _profiler_register->startWorkTimer();
+          //_profiler_register->startWorkTimer();
           double loglh = pllmod_treeinfo_compute_loglh(_pll_treeinfo, 0);
-          _profiler_register->endWorkTimer();
+          //_profiler_register->endWorkTimer();
           if (parameter == "spr round" || parameter == "branch length opt.") {
             assert_lh_improvement(pre_fail_loglh, loglh);
           } else if (parameter != "branch length scalers") { // TODO: Check if this is expected
@@ -471,9 +471,9 @@ double TreeInfo::fault_tolerant_call(string parameter, const function<double()> 
   }
 
   #ifdef NON_FAILURE_TOLERANT_ASSERTS
-  _profiler_register->startWorkTimer();
+  //_profiler_register->startWorkTimer();
   assert_lh_eq(new_loglh, pllmod_treeinfo_compute_loglh(_pll_treeinfo, 0));
-  _profiler_register->endWorkTimer();
+  //_profiler_register->endWorkTimer();
   #endif
   assert(new_loglh <= 0);
 

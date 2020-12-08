@@ -666,8 +666,8 @@ void ParallelContext::parallel_reduce(double * data, size_t size, int op)
 
 void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t size, int op)
 {
-  auto profilerRegister = ProfilerRegister::getInstance();
-  profilerRegister->endWorkTimer();
+  //auto profilerRegister = ProfilerRegister::getInstance();
+  //profilerRegister->endWorkTimer();
 
   // Maybe simulate failure
   if (simulated_failures < max_failures_to_simulate && fail_every_nth_call > 0) {
@@ -687,7 +687,7 @@ void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t s
   ParallelContext::parallel_reduce(data, size, op);
   RAXML_UNUSED(context);
 
-  profilerRegister->startWorkTimer();
+  //profilerRegister->startWorkTimer();
 }
 
 void ParallelContext::thread_broadcast(size_t source_id, void * data, size_t size)
