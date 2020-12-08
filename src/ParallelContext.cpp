@@ -253,13 +253,17 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
     // If trying to do so, however, MPI_ERR_COMM (invalid communicator) will be returned. 
     // --mca mpi_show_handle_leaks 1 does not show a leaked handle, so mayble MPIX_Comm_Shrink
     // already frees the communicator.
-    // if ((rc = MPI_Comm_free(&_comm)) != MPI_SUCCESS) {
-    //   LOG_ERROR << "A rank failure was detected, but freeing the old communicator using "
-    //             << "MPI_Comm_free failed with err.: " << mpi_err_to_string(rc) << endl;
-    //   throw UnrecoverableRankFailureException();
-    // }
+    if ((rc = MPI_Comm_free(&_comm)) != MPI_SUCCESS) {
+      LOG_ERROR << "A rank failure was detected, but freeing the old communicator using "
+                << "MPI_Comm_free failed with err.: " << mpi_err_to_string(rc) << endl;
+      throw UnrecoverableRankFailureException();
+    }
     _comm = newComm;
     update_world_parameters();
+    if (_num_ranks == 1) {
+      LOG_ERROR << "I'm the only one left, this seems unlikely -- is the communicator broken?" << endl;
+      throw runtime_error("Comm split");
+    }
    throw RankFailureException();
   } else if (rc != MPI_SUCCESS) {
     throw runtime_error("MPI call did non fail because of a faulty rank but still did not return MPI_SUCCESS");
