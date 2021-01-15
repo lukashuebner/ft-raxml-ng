@@ -28,7 +28,30 @@ export LD_LIBRARY_PATH="$HOME/ulfm/lib:$LD_LIBRARY_PATH"
 
 Your can verify that ULFM is used instead of a pre-installed MPI implementation by checking the output of `which mpirun`, which should point to your just installed binary. You can then proceed to build the MPI version of FT-RAxML-NG (see below).
 
-### Running FT-RAxML-NG
+## Installing (FT-)RAxML-NG
+
+Please clone this repository and build RAxML-NG from scratch.
+
+1. **Install the dependecies.** On Ubuntu (and other Debian-based systems), you can simply run:
+```
+sudo apt-get install flex bison libgmp3-dev
+```
+For other systems, please make sure you have following packages/libraries installed:  
+[`GNU Bison`](http://www.gnu.org/software/bison/) [`Flex`](http://flex.sourceforge.net/) [`GMP`](https://gmplib.org/)
+
+2. **Build FT-RAxML-NG.**
+
+MPI version:
+
+```
+git clone --recursive https://github.com/amkozlov/raxml-ng
+cd raxml-ng
+mkdir build && cd build
+cmake -DUSE_MPI=ON ..
+make
+```
+
+## Running FT-RAxML-NG
 Make sure you are using the mpirun shipped with ULFM. You can test this using `which mpirun`.  We recommend the following settings to reduce the number of false positive failure reports:
 ```
 mpirun -n $SLURM_NTASKS \
@@ -54,29 +77,6 @@ If a failure occurred, RAxML-ng will conduct different allreduce operations with
 number of PEs. To reproduce this result, we would have to simulate a failure at the exact same
 moment in the tree search. Implementing either a numerically stable allreduce operation or a
 failure-log to enhance reproducibility is subject of future work.
-
-## Installing (FT-)RAxML-NG
-
-Please clone this repository and build RAxML-NG from scratch.
-
-1. **Install the dependecies.** On Ubuntu (and other Debian-based systems), you can simply run:
-```
-sudo apt-get install flex bison libgmp3-dev
-```
-For other systems, please make sure you have following packages/libraries installed:  
-[`GNU Bison`](http://www.gnu.org/software/bison/) [`Flex`](http://flex.sourceforge.net/) [`GMP`](https://gmplib.org/)
-
-2. **Build FT-RAxML-NG.**
-
-MPI version:
-
-```
-git clone --recursive https://github.com/amkozlov/raxml-ng
-cd raxml-ng
-mkdir build && cd build
-cmake -DUSE_MPI=ON ..
-make
-```
 
 ## Documentation and Support
 
@@ -115,5 +115,3 @@ doi:[10.1093/bioinformatics/btv184](https://doi.org/10.1093/bioinformatics/btv18
 * Kobert K., Flouri T., Aberer A., Stamatakis A. (2014)
 **The divisible load balance problem and its application to phylogenetic inference.**
 *Brown D., Morgenstern B., editors. (eds.) Algorithms in Bioinformatics, Vol. 8701 of Lecture Notes in Computer Science. Springer, Berlin, pp. 204–216*
-
-# TODO add my paper
