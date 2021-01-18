@@ -86,7 +86,12 @@ RAxML-NG, including documentation, a tutorial, and support can be found [here](h
 
 The code is currently licensed under the GNU Affero General Public License version 3.
 
-When using the fault-tolerant FT-RAxML-NG, please cite [this paper]():
+When using the fault-tolerant FT-RAxML-NG, please cite [this paper](https://www.biorxiv.org/content/10.1101/2021.01.15.426773v1):
+
+Lukas Hübner, Alexey M. Kozlov, Demian Hespe, Peter Sanders, Alexandros Stamatakis (2021)
+**Exploring Parallel MPI Fault Tolerance Mechanisms for Phylogenetic Inference with RAxML-NG**
+*Preprint at bioRxiv*
+doi:[10.1101/2021.01.15.426773](https://doi.org/10.1101/2021.01.15.426773)
 
 Additionally, please mention that FT-RAxML-NG is an extension of RAxML-NG and cite [this paper](https://doi.org/10.1093/bioinformatics/btz305) as well:
 
