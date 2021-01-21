@@ -44,7 +44,7 @@ For other systems, please make sure you have following packages/libraries instal
 MPI version:
 
 ```
-git clone --recursive https://github.com/amkozlov/raxml-ng
+git clone --recursive https://github.com/lukashuebner/ft-raxml-ng
 cd raxml-ng
 mkdir build && cd build
 cmake -DUSE_MPI=ON ..
