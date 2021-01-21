@@ -45,7 +45,7 @@ MPI version:
 
 ```
 git clone --recursive https://github.com/lukashuebner/ft-raxml-ng
-cd raxml-ng
+cd ft-raxml-ng
 mkdir build && cd build
 cmake -DUSE_MPI=ON ..
 make
