@@ -4,8 +4,11 @@
 #include "Options.hpp"
 
 #ifdef _RAXML_MPI
-#include <mpi-ext.h>
-#include "Profiler.hpp"
+    #ifndef RAXML_FAILURES_SIMULATE
+        #include <mpi-ext.h>
+    #endif
+
+    #include "Profiler.hpp"
 #endif
 
 #include <signal.h>
