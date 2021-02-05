@@ -163,7 +163,7 @@ string ParallelContext::mpi_err_to_string(int errorCode) {
   MPI_Error_class(errorCode, &errorClass);
   MPI_Error_string(errorClass, errorClassString, &errorClassStringLength);
 
-  return string(errorString) + " (" + string(errorClassString) + ")"; 
+  return string(errorString) + " (" + string(errorClassString) + ")";
 }
 #endif
 
@@ -186,12 +186,12 @@ void ParallelContext::update_world_parameters() {
   int numRanks = -1, rankId = -1, rc;
   if ((rc = MPI_Comm_size(_comm, &numRanks)) != MPI_SUCCESS) {
     LOG_ERROR << "A rank failure was detected, but getting the new communicator's size using "
-              << "MPI_Comm_size failed with err.: " << mpi_err_to_string(rc) << endl; 
+              << "MPI_Comm_size failed with err.: " << mpi_err_to_string(rc) << endl;
     throw UnrecoverableRankFailureException();
   }
   if ((rc = MPI_Comm_rank(_comm, &rankId)) != MPI_SUCCESS) {
     LOG_ERROR << "A rank failure was detected, but getting our new rank id using "
-              << "MPI_Comm_rank failed with err.: " << mpi_err_to_string(rc) << endl; 
+              << "MPI_Comm_rank failed with err.: " << mpi_err_to_string(rc) << endl;
     throw UnrecoverableRankFailureException();
   }
   assert(numRanks >= 1);
@@ -200,7 +200,7 @@ void ParallelContext::update_world_parameters() {
   _rank_id = (size_t)rankId;
   _local_rank_id = _num_ranks > _num_groups ? _rank_id : 0;
   detect_num_nodes();
-  log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
+  //log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
 }
 
 #ifdef _RAXML_MPI
@@ -217,7 +217,7 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 
     LOG_DEBUG << "Simulating failure" << endl;
 
-    _simulate_failure = false; // Do this *before* calling detect_num_nodes, which uses ft-MPI calls 
+    _simulate_failure = false; // Do this *before* calling detect_num_nodes, which uses ft-MPI calls
     MPI_Comm_split(_comm, 0, (rank_id() + 1) % num_ranks(), &newComm);
     MPI_Comm_free(&_comm);
     _comm = newComm;
@@ -232,7 +232,7 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
   } else {
     mpi_call();
   }
- 
+
   #else
 
   int rc, ec;
@@ -248,19 +248,14 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
     MPI_Comm newComm;
     if ((rc = MPIX_Comm_shrink(_comm, &newComm)) != MPI_SUCCESS) {
       LOG_ERROR << "A rank failure was detected, but building the new communicator using "
-                << "MPI_Comm_shrink failed with err.: " << mpi_err_to_string(rc) << endl; 
+                << "MPI_Comm_shrink failed with err.: " << mpi_err_to_string(rc) << endl;
       throw UnrecoverableRankFailureException();
     }
     assert(_comm != MPI_COMM_NULL);
-    // As for the example in the ULFM documentation, freeing the communicator is necessary.
-    // If trying to do so, however, MPI_ERR_COMM (invalid communicator) will be returned. 
-    // --mca mpi_show_handle_leaks 1 does not show a leaked handle, so mayble MPIX_Comm_Shrink
-    // already frees the communicator.
-    if ((rc = MPI_Comm_free(&_comm)) != MPI_SUCCESS) {
-      LOG_ERROR << "A rank failure was detected, but freeing the old communicator using "
-                << "MPI_Comm_free failed with err.: " << mpi_err_to_string(rc) << endl;
-      throw UnrecoverableRankFailureException();
-    }
+    // As for the ULFM documentation, freeing the communicator is recommended but will probably
+    // not succeed. This is why we do not check for an error here.
+    // I checked that --mca mpi_show_handle_leaks 1 does not show a leaked handle
+    MPI_Comm_free(&_comm);
     _comm = newComm;
     update_world_parameters();
     if (_num_ranks == 1) {
@@ -752,7 +747,7 @@ void ParallelContext::global_broadcast_custom(std::function<int(void*, int)> pre
     buffer.reserve(sizeOfMessage);
   }
   global_mpi_barrier();
-  global_master_broadcast(buffer.data(), sizeOfMessage, root);  
+  global_master_broadcast(buffer.data(), sizeOfMessage, root);
 
   // Deserialize received objects (process_recv_cb)
   if (rank_id() != root) {
