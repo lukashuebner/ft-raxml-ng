@@ -13,10 +13,12 @@ FT-RAxML-NG is expanded to include support for failing nodes during computations
 If your cluster environment does not include an up-to date ULFM installation, you can try installing one into your home directory.
 
 0. First, create the target directry, for example `mkdir "$HOME/ulfm"`.
-1. Download and extract the current versionof ULFM from [the official repo](https://bitbucket.org/icldistcomp/ulfm2/downloads/)
+1. Download and extract the current version of ULFM from [the official repo](https://bitbucket.org/icldistcomp/ulfm2/downloads/)¹
 2. Configure ULFM using `./configure --prefix="$HOME/ulfm"`
 3. Build using `make -j`
 4. Install ULFM locally using `make install`
+
+¹ Note, that we encountered problems with ULFM 4.0.2 on some systems. You can also try current development version from git. We had success on our systems with commit 0823ee3e57d.
 
 Ensure to set the following environment variables when _compiling_ and _running_ FT-RAxML-NG. 
 ```
