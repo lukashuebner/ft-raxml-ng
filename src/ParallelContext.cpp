@@ -1,5 +1,6 @@
 #include "ParallelContext.hpp"
 #include <memory>
+#include <mpi.h>
 
 #include "Options.hpp"
 
