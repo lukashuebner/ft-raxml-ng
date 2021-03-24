@@ -6,7 +6,6 @@
 #include <memory>
 #include <map>
 
-#include "ParallelContext.hpp"
 
 enum class LogLevel
 {

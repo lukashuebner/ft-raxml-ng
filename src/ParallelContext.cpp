@@ -201,74 +201,7 @@ void ParallelContext::update_world_parameters() {
   log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
 }
 
-#ifdef _RAXML_MPI
-void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
-{
-  assert(_comm != MPI_COMM_NULL);
 
-  #ifdef RAXML_FAILURES_SIMULATE
-
-  if (_simulate_failure) {
-    size_t oldRankId = rank_id();
-    MPI_Comm newComm;
-    RAXML_UNUSED(mpi_call);
-
-    LOG_DEBUG << "Simulating failure" << endl;
-
-    _simulate_failure = false; // Do this *before* calling detect_num_nodes, which uses ft-MPI calls 
-    MPI_Comm_split(_comm, 0, (rank_id() + 1) % num_ranks(), &newComm);
-    MPI_Comm_free(&_comm);
-    _comm = newComm;
-
-    update_world_parameters();
-    assert(num_ranks() == 1 || oldRankId != rank_id());
-    assert(num_ranks() != 0 || oldRankId == rank_id());
-
-    // log("Rank failure at:");
-    // print_stacktrace();
-    throw RankFailureException();
-  } else {
-    mpi_call();
-  }
- 
-  #else
-
-  int rc, ec;
-  rc = mpi_call();
-  MPI_Error_class(rc, &ec);
-
-  if (ec == MPI_ERR_PROC_FAILED || ec == MPI_ERR_REVOKED) {
-    if (ec == MPI_ERR_PROC_FAILED) {
-        MPIX_Comm_revoke(_comm);
-    }
-
-    // Build a new communicator without the failed ranks
-    MPI_Comm newComm;
-    if ((rc = MPIX_Comm_shrink(_comm, &newComm)) != MPI_SUCCESS) {
-      LOG_ERROR << "A rank failure was detected, but building the new communicator using "
-                << "MPI_Comm_shrink failed with err.: " << mpi_err_to_string(rc) << endl; 
-      throw UnrecoverableRankFailureException();
-    }
-    assert(_comm != MPI_COMM_NULL);
-    // As for the example in the ULFM documentation, freeing the communicator is necessary.
-    // If trying to do so, however, MPI_ERR_COMM (invalid communicator) will be returned. 
-    // --mca mpi_show_handle_leaks 1 does not show a leaked handle, so mayble MPIX_Comm_Shrink
-    // already frees the communicator.
-    // if ((rc = MPI_Comm_free(&_comm)) != MPI_SUCCESS) {
-    //   LOG_ERROR << "A rank failure was detected, but freeing the old communicator using "
-    //             << "MPI_Comm_free failed with err.: " << mpi_err_to_string(rc) << endl;
-    //   throw UnrecoverableRankFailureException();
-    // }
-    _comm = newComm;
-    update_world_parameters();
-   throw RankFailureException();
-  } else if (rc != MPI_SUCCESS) {
-    throw runtime_error("MPI call did non fail because of a faulty rank but still did not return MPI_SUCCESS");
-  }
-
-  #endif
-}
-#endif
 
 #ifdef _RAXML_MPI
 void ParallelContext::check_for_rank_failure() {

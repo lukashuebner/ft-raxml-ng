@@ -131,7 +131,8 @@ private:
   // Wrapper to call an optimization function until a pass succeeds without a rank failure.
   // On failure, the ParallelContext is updated to include only non-failed ranks, the models and tree stored at the
   // last mini_checkpoint() are restored and the optimization routine is invoked again.
-  double fault_tolerant_call(std::string parameter, const std::function<double()> optimizer, bool changes_model, bool changes_tree);
+  template<class F>
+  double fault_tolerant_call(std::string parameter, F optimizer, bool changes_model, bool changes_tree);
 
   // Will not reinitiate but reuse the profiler if called twice
   void init_profiler();

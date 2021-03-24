@@ -1,6 +1,6 @@
 #include "Optimizer.hpp"
 
-//#define MINIMAL_RUN
+#define MINIMAL_RUN
 
 using namespace std;
 

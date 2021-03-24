@@ -19,6 +19,7 @@
     Schloss-Wolfsbrunnenweg 35, D-69118 Heidelberg, Germany
 */
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 
 #include <memory>

@@ -413,7 +413,8 @@ void TreeInfo::mini_checkpoint(bool save_models, bool save_tree) {
 }
 
 size_t failureCount = 0;
-double TreeInfo::fault_tolerant_call(string parameter, const function<double()> optimizer, bool changes_model, bool changes_tree) {
+template<class F>
+double TreeInfo::fault_tolerant_call(string parameter, F optimizer, bool changes_model, bool changes_tree) {
   //! Do not use loglh() inside this function, as loglh() will compute the log likelihood using
   //! fault_tolerant_call. Use pllmod_treeinfo_compute_loglh() directly instead (might fail)
   double new_loglh = 1;
