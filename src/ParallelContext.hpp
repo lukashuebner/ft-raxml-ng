@@ -111,12 +111,12 @@ public:
                                       size_t sizeOfBuffer, size_t root);
 
   // If a rank failure occurs during this call, detect_num_nodes() will be called in the failure
-  // mitigation routine which itself will call mpi_gather_custom. In this case, we cannot use 
+  // mitigation routine which itself will call mpi_gather_custom. In this case, we cannot use
   // parallel buf, as we would override its contents.
   static void mpi_gather_custom(std::function<int(void*,int)> prepare_send_cb,
                                 std::function<void(void*,int)> process_recv_cb,
                                 bool use_parallel_buf = true);
-                                
+
   static std::shared_ptr<std::vector<double>> mpi_allgather(double value);
 
   static void parallel_reduce(double * data, size_t size, int op);
@@ -130,10 +130,10 @@ public:
   static void fail(size_t rank, int on_nth_call = 1, bool reset = false);
   static void set_failure_prob(float probability);
   #endif
-    
+
   // Will sleep until a debugger attaches and changes a local variable using for example
   // (gdb) set var i = 1
-  static void waitForDebugger(); 
+  static void waitForDebugger();
 
   static bool master() { return proc_id() == 0; }
   static bool master_rank() { return _rank_id == 0; }
@@ -178,7 +178,7 @@ public:
   private:
     LockType _lock;
   };
-  
+
   class GroupLock
   {
   public:
@@ -201,6 +201,8 @@ public:
     }
   };
 
+  static long fail_every_nth_call;
+  static int max_failures_to_simulate;
 private:
 #ifdef _RAXML_MPI
   // Has the MPI subsystem been finalized?
@@ -209,9 +211,10 @@ private:
   static std::string mpi_err_to_string(int errorCode);
   static int failureCounter;
   static bool _simulate_failure;
+  static int iFail_at_call;
+  static int simulated_failures;
   static float _randomized_failure_prob;
-#endif
-#ifdef _RAXML_MPI
+  
   template<class F>
   static void fault_tolerant_mpi_call(F mpi_call)
   {
@@ -227,6 +230,7 @@ private:
       LOG_DEBUG << "Simulating failure" << std::endl;
   
       _simulate_failure = false; // Do this *before* calling detect_num_nodes, which uses ft-MPI calls 
+      simulated_failures++;
       MPI_Comm_split(_comm, 0, (rank_id() + 1) % num_ranks(), &newComm);
       MPI_Comm_free(&_comm);
       _comm = newComm;
@@ -244,6 +248,13 @@ private:
    
     #else
   
+    #ifdef RAXML_FAILURES_SIMULATE
+    failureCounter++;
+    if (failureCounter == iFail_at_call) { // Simulate my failure when my time has come
+      raise(SIGKILL);
+    }
+    #endif
+    
     int rc, ec;
     rc = mpi_call();
     MPI_Error_class(rc, &ec);

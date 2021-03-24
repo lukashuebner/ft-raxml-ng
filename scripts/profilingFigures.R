@@ -11,7 +11,7 @@ library(svglite)
 library(scales)
 
 ### Helpers ###
-# Bin factor levels and helper funcitons
+# Bin factor levels and helper functions
 binFactorLevels <- c("0 ns", map_chr(0:63, function(bit) {
   sprintf("[2^%02d,2^%02d) ns", bit, bit + 1)
 }))
@@ -682,6 +682,45 @@ integer_breaks <- function(n = 5, ...) {
   return(fxn)
 }
 
+# Demians suggestion
+proFileData_overallStats %>%
+  group_by(dataset) %>%
+  mutate(
+    plotting_order = dense_rank(nsSumWork / avgWork)
+  ) %>%
+ggplot() +
+  geom_point(aes(y = nsSumWork / avgWork, x = plotting_order)) +
+  facet_wrap(
+    ~dataset,
+    nrow = 2,
+    scale = "free",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      )
+    )) + 
+  theme_bw() +
+  #scale_y_continuous(breaks = integer_breaks()) +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_blank()
+  ) +
+  labs(
+    x = "one dot per rank",
+    y = "work on this rank / average work across all ranks"
+  )
+
+ggsave(
+  filename = "perf-work-on-rank-by-avg-work-slides.eps",
+  path = plotDir,
+  device = "eps",
+  width = 22,
+  height = 10,
+  units = "cm"
+)
+
 # Imbalance of work across ranks
 ggplot(data = proFileData_overallStats) +
   geom_histogram(aes(nsSumWork / avgWork), stat = "bin", binwidth = 0.01) +
@@ -712,6 +751,34 @@ ggsave(
   height = 10.4332,
   units = "cm"
 )
+
+# Demians suggestion
+proFileData_overallStats %>%
+  group_by(dataset) %>%
+  mutate(
+    plotting_order = dense_rank(timesIWasSlowest / numIterations)
+  ) %>%
+ggplot() +
+  geom_point(aes(y = timesIWasSlowest / numIterations, x = plotting_order)) +
+  geom_hline(aes(yintercept = 1 / nRanks)) +
+  facet_wrap(
+    ~dataset,
+    nrow = 2,
+    scale = "free",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      )
+    )) + 
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    y = "fraction of iterations this rank took longest to finish work",
+    x = "one dot per rank"
+  )
 
 # How often was a rank the slowest one?
 ggplot(data = proFileData_overallStats) +
@@ -765,6 +832,34 @@ ggplot(data = proFileData_overallStats) +
   labs(
     x = "time spent doing work / total runtime",
     y = "rank count"
+  )
+
+# Demians suggestion
+proFileData_overallStats %>%
+  group_by(dataset) %>%
+  mutate(
+    plotting_order = dense_rank(nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI))
+  ) %>%
+  ggplot() +
+  geom_point(aes(y = nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI), x = plotting_order)) +
+  geom_hline(aes(yintercept = 1 / nRanks)) +
+  facet_wrap(
+    ~dataset,
+    nrow = 2,
+    scale = "free_x",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      )
+    )) + 
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    y = "time spent doing work / total runtime",
+    x = "one dot per rank"
   )
 ggsave(
   filename = "perf-fraction-of-time-working.pdf",
@@ -867,10 +962,10 @@ proFileData_fractionalStats_summary <-
             min = min(midBin),
             max = max(midBin),
         ),
-        freq_quantiles(proFileData_fractionalStats, 0.05) %>% rename(q01 = midBin),
+        freq_quantiles(proFileData_fractionalStats, 0.01) %>% rename(lowerQuantile = midBin),
         by = c("rank", "processor", "timer", "dataset")
       ),
-      freq_quantiles(proFileData_fractionalStats, 0.95) %>% rename(q99 = midBin),
+      freq_quantiles(proFileData_fractionalStats, 0.99) %>% rename(upperQuantile = midBin),
       by = c("rank", "processor", "timer", "dataset")
     ),
     freq_quantiles(proFileData_fractionalStats, 0.5) %>% rename(median = midBin),
@@ -880,11 +975,11 @@ proFileData_fractionalStats_summary <-
 ggplot() +
   geom_linerange(
     data = filter(proFileData_fractionalStats_summary, timer == "MPI_Allreduce"),
-    mapping = aes(ymin = max(q01, 1), ymax = q99, x = rank, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = max(lowerQuantile, 1), ymax = upperQuantile, x = rank, color = as.character(as.integer(rank / 20)))
   ) +
   geom_linerange(
     data = filter(proFileData_fractionalStats_summary, timer == "Work"),
-    mapping = aes(ymin = max(q01, 1), ymax = q99, x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
+    mapping = aes(ymin = max(lowerQuantile, 1), ymax = upperQuantile, x = rank + maxRanks[as.character(dataset)] * 1.03 + 1, color = as.character(as.integer(rank / 20)))
   ) +
   geom_point(
     data = filter(proFileData_fractionalStats_summary, timer == "MPI_Allreduce"),
@@ -919,7 +1014,7 @@ ggplot() +
     colour = "Code Segment"
   )
 ggsave(
-  filename = "perf-time-as-fraction-of-avg.pdf",
+  filename = "perf-time-as-fraction-of-avg-large-quantiles.pdf",
   path = plotDir,
   device = "pdf",
   width = 16.7976,
@@ -1015,6 +1110,49 @@ ggsave(
   units = "cm"
 )
 
+# Demian's suggestion
+proFileData_siteRepeats %>%
+  group_by(dataset, sr) %>%
+  mutate(
+    plotting_order = dense_rank(nsSumWork / avgWork)
+  ) %>%
+ggplot() +
+  geom_point(aes(y = nsSumWork / avgWork, x = plotting_order)) +
+  facet_grid(
+    vars(sr), vars(dataset),
+    scale = "free_x",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      ),
+      sr = c(sr = "site-repeats ON", `no-sr` = "site-repeats OFF")
+    )) + 
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    x = "one dot per rank",
+    y = "work on this rank / average work across all ranks"
+  )
+ggsave(
+  filename = "perf-work-by-avg-sr.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)
+ggsave(
+  filename = "perf-work-by-avg-sr-slides.eps",
+  path = plotDir,
+  device = "eps",
+  width = 22,
+  height = 10,
+  units = "cm"
+)
+
 # Imbalance of work and communication
 ggplot(data = proFileData_siteRepeats) +
   geom_histogram(aes(x = nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI), y = ..density..), stat = "bin", binwidth = 0.05) +
@@ -1046,5 +1184,38 @@ ggsave(
   units = "cm"
 )
 
-ggplot(data = proFileData_siteRepeats) +
-  geom_bar(aes(x = nsSumInsideMPI + nsSumOutsideMPI))
+# Demian's suggestion
+proFileData_siteRepeats %>%
+  group_by(dataset, sr) %>%
+  mutate(
+    plotting_order = dense_rank(nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI))
+  ) %>%
+ggplot() +
+  geom_point(aes(y = nsSumOutsideMPI / (nsSumInsideMPI + nsSumOutsideMPI), x = plotting_order)) +
+  facet_grid(
+    vars(sr), vars(dataset),
+    scale = "free_x",
+    labeller = labeller(
+      dataset = map_chr(datasetLabelsShort, function(label)
+        str_replace(label, "ranks", "r.")
+      ),
+      sr = c(sr = "site-repeats ON", `no-sr` = "site-repeats OFF")
+    )) + 
+  scale_y_continuous(limits = c(0, 1)) +
+  theme_bw() +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    x = "one dot per rank",
+    y = "time spent doing work / total runtime"
+  )
+ggsave(
+  filename = "perf-work-vs-comm-sr.pdf",
+  path = plotDir,
+  device = "pdf",
+  width = 16.7976,
+  height = 10.4332,
+  units = "cm"
+)

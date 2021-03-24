@@ -1,6 +1,6 @@
 #include "Optimizer.hpp"
 
-#define MINIMAL_RUN
+//#define MINIMAL_RUN
 
 using namespace std;
 
@@ -37,6 +37,7 @@ double Optimizer::optimize_model(TreeInfo& treeinfo, double lh_epsilon)
     LOG_DEBUG << "Iteration " << iter_num <<  ": logLH = " << new_loglh << endl;
 
     #ifdef MINIMAL_RUN
+    LOG_WARNING << "MINIMAL RUN!!" << endl;
     // TODO: Remove this, this if for performance evaluation only!
     return new_loglh;
     #endif
@@ -185,6 +186,7 @@ double Optimizer::optimize_topology(TreeInfo& treeinfo, CheckpointManager& cm)
 
       #ifdef MINIMAL_RUN
       // TODO: Remove this, this is for performance evaluation only
+      LOG_WARNING << "MINIMAL RUN!!" << endl;
       return loglh; // Skip the remaining steps
       #endif
     }

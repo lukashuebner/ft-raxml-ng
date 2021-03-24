@@ -2628,6 +2628,10 @@ void thread_main(RaxmlInstance& instance, CheckpointManager& cm)
   ParallelContext::global_barrier();
 
   auto const& opts = instance.opts;
+  
+  // Start failure simulation
+  ParallelContext::fail_every_nth_call = opts.fail_every;
+  ParallelContext::max_failures_to_simulate = opts.max_failures;
 
   if ((opts.command == Command::search || opts.command == Command::all ||
       opts.command == Command::evaluate || opts.command == Command::ancestral) &&

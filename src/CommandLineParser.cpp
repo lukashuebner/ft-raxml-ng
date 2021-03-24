@@ -76,6 +76,8 @@ static struct option long_options[] =
   {"ancestral",          optional_argument, 0, 0 },  /*  53 */
 
   {"workers",            required_argument, 0, 0 },  /*  54 */
+  {"fail-every",         required_argument, 0, 0 },  /*  55 */
+  {"max-failures",       required_argument, 0, 0 },  /*  56 */
 
   { 0, 0, 0, 0 }
 };
@@ -287,6 +289,12 @@ void CommandLineParser::parse_options(int argc, char** argv, Options &opts)
   opts.brlen_max = RAXML_BRLEN_MAX;
 
   opts.num_threads = 0;
+
+  /* fail every n-th call, default: never */
+  opts.fail_every = 0;
+
+  /* simulate a maximum of n failures; defult: maxint */
+  opts.max_failures = numeric_limits<int>::max();
 
   /* use all available cores per default */
 #if !defined(_RAXML_PTHREADS)
@@ -861,6 +869,14 @@ void CommandLineParser::parse_options(int argc, char** argv, Options &opts)
           throw InvalidOptionValueException("Invalid number of workers: " + string(optarg) +
                                             ", please provide a positive integer number!");
         }
+        break;
+
+      case 55: /* fail every n-th work package */
+        opts.fail_every = atol(optarg);
+        break;
+
+      case 56: /* fail a maximum of n times */
+        opts.max_failures = atol(optarg);
         break;
 
       default:

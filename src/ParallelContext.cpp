@@ -1,10 +1,10 @@
 #include "ParallelContext.hpp"
 #include <memory>
-#include <mpi.h>
 
 #include "Options.hpp"
 
 #ifdef _RAXML_MPI
+#include <mpi.h>
 #include <mpi-ext.h>
 #include "Profiler.hpp"
 #endif
@@ -72,9 +72,16 @@ ThreadGroup& ParallelContext::thread_group(size_t id)
 int ParallelContext::failureCounter = 0;
 bool ParallelContext::_simulate_failure = false;
 float ParallelContext::_randomized_failure_prob = 0;
+int ParallelContext::iFail_at_call = -1;
+long ParallelContext::fail_every_nth_call = 0;
+int ParallelContext::max_failures_to_simulate = numeric_limits<int>::max();
+int ParallelContext::simulated_failures = 0;
+
 void ParallelContext::fail(size_t rankId, int on_nth_call, bool reset) {
+  // ParallelContext::log("FailureCounter: " + to_string(failureCounter));
   // Everyone uses the same counter, this prevent another rank killing himself after the rank ids have been reassigned
   failureCounter++;
+  //log("this is failure " + to_string(failureCounter) + " I will fail on " + to_string(iFail_at_call));
   if (on_nth_call < 0 || failureCounter == on_nth_call) {
     #ifdef RAXML_FAILURES_SIMULATE
     _simulate_failure = true;
@@ -96,12 +103,12 @@ void ParallelContext::set_failure_prob(float probability) {
 }
 #endif
 
-#ifdef _RAXML_PROFILE
-  auto profilerRegister = ProfilerRegister::createInstance("profile_2.csv");
-auto allreduceTimer = profilerRegister->registerProfiler("MPI_Allreduce");
-auto workTimer = profilerRegister->registerProfiler("Work");
-bool profilingHeaderWritten = false;
-#endif
+//#ifdef _RAXML_PROFILE
+//auto profilerRegister = ProfilerRegister::createInstance("profile_2.csv");
+//auto allreduceTimer = profilerRegister->registerProfiler("MPI_Allreduce");
+//auto workTimer = profilerRegister->registerProfiler("Work");
+//bool profilingHeaderWritten = false;
+//#endif
 
 void ParallelContext::init_mpi(int argc, char * argv[], void * comm)
 {
@@ -200,7 +207,6 @@ void ParallelContext::update_world_parameters() {
   detect_num_nodes();
   log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
 }
-
 
 
 #ifdef _RAXML_MPI
