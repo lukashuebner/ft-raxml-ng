@@ -414,7 +414,7 @@ void ParallelContext::detect_num_nodes()
 }
 
 void ParallelContext::saveProfilingData() {
-  ProfilerRegister::getInstance()->saveProfilingData(master(), _num_ranks, &(ParallelContext::rankToProcessorName), _comm);
+//   ProfilerRegister::getInstance()->saveProfilingData(master(), _num_ranks, &(ParallelContext::rankToProcessorName), _comm);
 }
 
 void ParallelContext::resize_buffers(size_t reduce_buf_size, size_t worker_buf_size)
@@ -635,22 +635,22 @@ void ParallelContext::parallel_reduce(double * data, size_t size, int op)
 
 void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t size, int op)
 {
-  auto profilerRegister = ProfilerRegister::getInstance();
-  profilerRegister->endWorkTimer();
+  //auto profilerRegister = ProfilerRegister::getInstance();
+  //profilerRegister->endWorkTimer();
 
-  if (_randomized_failure_prob > 0) {
-    uint32_t r = 0;
-    const uint32_t GRANULARITY = 1000000;
-    static_assert(GRANULARITY < RAND_MAX);
-    r = rand() % GRANULARITY;
-    _simulate_failure = r < GRANULARITY * _randomized_failure_prob;
-    MPI_Bcast(&_simulate_failure, 1, MPI_CXX_BOOL, 0, _comm);
-  }
+//   if (_randomized_failure_prob > 0) {
+//     uint32_t r = 0;
+//     const uint32_t GRANULARITY = 1000000;
+//     static_assert(GRANULARITY < RAND_MAX);
+//     r = rand() % GRANULARITY;
+//     _simulate_failure = r < GRANULARITY * _randomized_failure_prob;
+//     MPI_Bcast(&_simulate_failure, 1, MPI_CXX_BOOL, 0, _comm);
+//   }
 
   ParallelContext::parallel_reduce(data, size, op);
   RAXML_UNUSED(context);
 
-  profilerRegister->startWorkTimer();
+  //profilerRegister->startWorkTimer();
 }
 
 void ParallelContext::thread_broadcast(size_t source_id, void * data, size_t size)

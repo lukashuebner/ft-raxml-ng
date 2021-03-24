@@ -2268,36 +2268,36 @@ void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
   bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
 }
 
-shared_ptr<vector<double>> compute_work_by_partition(RaxmlInstance& instance) {
-  auto work_by_rank = ProfilerRegister::getInstance()->work_by_rank();
-  assert(work_by_rank->size() == ParallelContext::num_ranks());
+// shared_ptr<vector<double>> compute_work_by_partition(RaxmlInstance& instance) {
+//   auto work_by_rank = ProfilerRegister::getInstance()->work_by_rank();
+//   assert(work_by_rank->size() == ParallelContext::num_ranks());
 
-  auto work_by_partition = make_shared<vector<double>>(instance.parted_msa->part_count());
+//   auto work_by_partition = make_shared<vector<double>>(instance.parted_msa->part_count());
 
-  assert(ParallelContext::num_procs() == instance.proc_part_assign.size());
-  for (size_t proc = 0; proc < ParallelContext::num_procs(); proc++) {
-    assert(ParallelContext::rank_id(ParallelContext::proc_id() == ParallelContext::rank_id()));
-    size_t rank_id = ParallelContext::rank_id(proc);
-    auto& assignment_list = instance.proc_part_assign.at(proc);
+//   assert(ParallelContext::num_procs() == instance.proc_part_assign.size());
+//   for (size_t proc = 0; proc < ParallelContext::num_procs(); proc++) {
+//     assert(ParallelContext::rank_id(ParallelContext::proc_id() == ParallelContext::rank_id()));
+//     size_t rank_id = ParallelContext::rank_id(proc);
+//     auto& assignment_list = instance.proc_part_assign.at(proc);
 
-    // Determine the work per site for this rank
-    assert(ParallelContext::num_procs() == ParallelContext::num_ranks());
-    size_t nSites = 0;
-    for (auto& assignment: assignment_list) {
-      nSites += assignment.length;
-    }
-    assert(nSites > 0);
-    assert(work_by_rank->at(rank_id) > 0);
-    double work_per_site = work_by_rank->at(rank_id) / nSites;
-    assert(work_per_site > 0);
+//     // Determine the work per site for this rank
+//     assert(ParallelContext::num_procs() == ParallelContext::num_ranks());
+//     size_t nSites = 0;
+//     for (auto& assignment: assignment_list) {
+//       nSites += assignment.length;
+//     }
+//     assert(nSites > 0);
+//     assert(work_by_rank->at(rank_id) > 0);
+//     double work_per_site = work_by_rank->at(rank_id) / nSites;
+//     assert(work_per_site > 0);
 
-    for (auto& assignment: assignment_list) {
-      work_by_partition->at(assignment.part_id) += work_per_site * assignment.length;
-    }
-  }
+//     for (auto& assignment: assignment_list) {
+//       work_by_partition->at(assignment.part_id) += work_per_site * assignment.length;
+//     }
+//   }
 
-  return work_by_partition;
-}
+//   return work_by_partition;
+// }
 
 bool firstLoad = true;
 void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
@@ -2370,34 +2370,37 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
   };
 
   auto redo_assignment_cb = [&instance, &compute_part_masters] (bool rebalance = false) {
+    RAXML_UNUSED(rebalance);
     auto profiler_register = ProfilerRegister::getInstance();
 
-    LOG_DEBUG << "Rebalancing load:" << endl;
-    profiler_register->profileFunction([&]() {
-      if (rebalance) {
-        LOG_DEBUG << "Using local work as weights to rebalance the load." << endl;
-        auto work_by_partition = compute_work_by_partition(instance);
-        balance_load(instance, bind(instance.load_balancer_cb, work_by_partition));
-      } else {
-        balance_load(instance, bind(instance.load_balancer_cb, nullptr));
-      }
-    }, "BalanceLoad");
+    // LOG_DEBUG << "Rebalancing load:" << endl;
+    // profiler_register->profileFunction([&]() {
+    //   if (rebalance) {
+    //     LOG_DEBUG << "Using local work as weights to rebalance the load." << endl;
+    //     auto work_by_partition = compute_work_by_partition(instance);
+    //     balance_load(instance, bind(instance.load_balancer_cb, work_by_partition));
+    //   } else {
+    //     balance_load(instance, bind(instance.load_balancer_cb, nullptr));
+    //   }
+    // }, "BalanceLoad");
 
-    profiler_register->profileFunction([&]() {
-      compute_part_masters();
-    }, "ComputePartMasters");
+    // profiler_register->profileFunction([&]() {
+    //   compute_part_masters();
+    // }, "ComputePartMasters");
 
-    if (firstLoad) {
-      profiler_register->profileFunction([&]() {
-        load_assignment_data_for_this_rank(instance);
-      }, "LoadAssignmentDataFirstLoad");
-      firstLoad= false;
-    } else {
-      profiler_register->profileFunction([&]() {
-        load_assignment_data_for_this_rank(instance);
-      }, "LoadAssignmentData");
-    }
+    // if (firstLoad) {
+    //   profiler_register->profileFunction([&]() {
+    //     load_assignment_data_for_this_rank(instance);
+    //   }, "LoadAssignmentDataFirstLoad");
+    //   firstLoad= false;
+    // } else {
+    //   profiler_register->profileFunction([&]() {
+    //     load_assignment_data_for_this_rank(instance);
+    //   }, "LoadAssignmentData");
+    // }
 
+    compute_part_masters();
+    load_assignment_data_for_this_rank(instance);
     return instance.proc_part_assign.at(ParallelContext::local_proc_id());
   };
 

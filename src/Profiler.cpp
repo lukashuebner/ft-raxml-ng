@@ -184,13 +184,13 @@ void FractionalProfiler::resumeTimer() {
     startTimer(true);
 }
 
-shared_ptr<FractionalProfiler::FractionalHistogram> FractionalProfiler::getHistogram() const {
-    if (invalid) {
-        throw runtime_error("Trying to get histogram of invalid timer");
-    }
-    assert(eventCounter != nullptr);
-    return eventCounter;
-}
+// shared_ptr<FractionalProfiler::FractionalHistogram> FractionalProfiler::getHistogram() const {
+//     if (invalid) {
+//         throw runtime_error("Trying to get histogram of invalid timer");
+//     }
+//     assert(eventCounter != nullptr);
+//     return eventCounter;
+// }
 
 const string FractionalProfiler::getName() const {
     return this->name;
@@ -218,36 +218,36 @@ const shared_ptr<vector<uint64_t>> FractionalProfiler::FractionalHistogram::data
     return bins;
 }
 
-unique_ptr<ostream> FractionalProfiler::writeTimingsHeader(unique_ptr<ostream> file) {
-    if (file == nullptr) {
-        throw runtime_error("I will not write to a nullptr.");
-    }
+// unique_ptr<ostream> FractionalProfiler::writeTimingsHeader(unique_ptr<ostream> file) {
+//    if (file == nullptr) {
+//        throw runtime_error("I will not write to a nullptr.");
+//    }
 
-    *file << "rank,processor,timer,secondsPassed,bin,count" << endl;
-    return file;
-}
+//    *file << "rank,processor,timer,secondsPassed,bin,count" << endl;
+//    return file;
+// }
 
-unique_ptr<ostream> FractionalProfiler::writeTimingsStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
-                                                   string (*rankToProcessorName) (size_t), int secondsPassed) {
-    if (data == nullptr || file == nullptr) {
-        throw runtime_error("nullptr as data or file");
-    }
-    if (secondsPassed < 0) {
-        throw runtime_error("You seem to have invented time travel ;-) (secondsPassed < 0)");
-    } 
+// unique_ptr<ostream> FractionalProfiler::writeTimingsStats(shared_ptr<vector<uint64_t>> data, unique_ptr<ostream> file, const string& timerName,
+//                                                   string (*rankToProcessorName) (size_t), int secondsPassed) {
+//    if (data == nullptr || file == nullptr) {
+//        throw runtime_error("nullptr as data or file");
+//    }
+//    if (secondsPassed < 0) {
+//        throw runtime_error("You seem to have invented time travel ;-) (secondsPassed < 0)");
+//    } 
 
-    // Output data
-    for (size_t rank = 0; rank < data->size() / FractionalHistogram::numBins; rank++) {
-        for (uint16_t bin = 0; bin < FractionalHistogram::numBins; bin++) {
-            *file << to_string(rank) << "," << (*rankToProcessorName)(rank) << "," << timerName << ","<< to_string(secondsPassed) << ",";
-            *file << FractionalHistogram::binName(bin) << ",";
-            *file << (*data)[rank * FractionalHistogram::numBins + bin];
-            *file << endl;
-        } 
-    }
+//    // Output data
+//    for (size_t rank = 0; rank < data->size() / FractionalHistogram::numBins; rank++) {
+//        for (uint16_t bin = 0; bin < FractionalHistogram::numBins; bin++) {
+//            *file << to_string(rank) << "," << (*rankToProcessorName)(rank) << "," << timerName << ","<< to_string(secondsPassed) << ",";
+//            *file << FractionalHistogram::binName(bin) << ",";
+//            *file << (*data)[rank * FractionalHistogram::numBins + bin];
+//            *file << endl;
+//        } 
+//    }
 
-    return file;
-}
+//    return file;
+// }
 
 uint64_t FractionalProfiler::timesCalled() const {
     if (invalid) {
@@ -282,42 +282,44 @@ ProfilerRegister::ProfilerRegister(string prefix) {
     createProFile(prefix);
     profilers = make_shared<map<string, shared_ptr<FractionalProfiler>>>();
     stats = make_shared<map<string, Measurement>>();
-    stats->insert({ string("work"), Measurement() });
+    //stats->insert({ string("work"), Measurement() });
 
-    assert(stats->at("work").count == 0 && stats->at("work").nsSum == 0);
+    //assert(stats->at("work").count == 0 && stats->at("work").nsSum == 0);
     assert(profilers != nullptr);
     assert(stats != nullptr);
 }
 
 void ProfilerRegister::createProFile(string prefix) {
-    if (proFile != nullptr || callsPerSecondFile != nullptr) {
+    RAXML_UNUSED(prefix);
+    //if (proFile != nullptr || callsPerSecondFile != nullptr) {
+    if (callsPerSecondFile != nullptr) {
         throw runtime_error("Profiling data logfile has already been created!");
     }
 
     // ProFile
-    ofstream* file = new ofstream();
-    file->open(prefix + ".proFile.csv");
-    proFile = unique_ptr<ostream>(file);
-    proFile = FractionalProfiler::writeTimingsHeader(move(proFile));
-    assert(proFile != nullptr && *proFile);
+    //ofstream* file = new ofstream();
+    //file->open(prefix + ".proFile.csv");
+    //proFile = unique_ptr<ostream>(file);
+    //proFile = FractionalProfiler::writeTimingsHeader(move(proFile));
+    //assert(proFile != nullptr && *proFile);
 
     // Calls per second file
-    file = new ofstream();
-    file->open(prefix + ".callsPerSecond.csv");
-    callsPerSecondFile = unique_ptr<ostream>(file);
-    callsPerSecondFile = FractionalProfiler::writeCallsPerSecondsHeader(move(callsPerSecondFile));
-    assert(callsPerSecondFile != nullptr && *callsPerSecondFile);
+    //auto file = new ofstream();
+    //file->open(prefix + ".callsPerSecond.csv");
+    //callsPerSecondFile = unique_ptr<ostream>(file);
+    //callsPerSecondFile = FractionalProfiler::writeCallsPerSecondsHeader(move(callsPerSecondFile));
+    //assert(callsPerSecondFile != nullptr && *callsPerSecondFile);
 
     // Overall statistics file
     // Here, only the filename is computed, the file is reopened (and truncated) on every write.
-    overallStatsFilename = prefix + ".overallStats.csv";
+    overallStatsFilename = "overallStats.csv";
 
     // Work by rank file
-    file = new ofstream();
-    file->open(prefix + ".workByRank.csv");
-    workByRankFile = unique_ptr<ostream>(file);
-    *workByRankFile << "time,rank,workMs" << endl;
-    assert(workByRankFile != nullptr && *workByRankFile);
+    //file = new ofstream();
+    //file->open(prefix + ".workByRank.csv");
+    //workByRankFile = unique_ptr<ostream>(file);
+    //*workByRankFile << "time,rank,workMs" << endl;
+    //assert(workByRankFile != nullptr && *workByRankFile);
 }
 
 shared_ptr<FractionalProfiler> ProfilerRegister::registerProfiler(string name) {
@@ -351,111 +353,94 @@ shared_ptr<ProfilerRegister> ProfilerRegister::createInstance(string logFile) {
     return singleton;
 }
 
-void ProfilerRegister::profileFunction(function<void()> func, string key) {
-    if (key == "work") {
-        throw runtime_error("'work' is a reserved timer, use a different key");
-    }
-    auto start = chrono::high_resolution_clock::now();
-    func(); // If this throws an exception, it's runtime will not be counted
-    auto end = chrono::high_resolution_clock::now();
-    uint64_t callDuration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
+//void ProfilerRegister::startWorkTimer() {
+//    assert(!workTimerRunning);
+//    workTimerRunning = true;
+//
+//    workStart = chrono::high_resolution_clock::now();
+//}
+//
+//void ProfilerRegister::endWorkTimer() {
+//    assert(stats->find("work") != stats->end());
+//    assert(workTimerRunning);
+//    workTimerRunning = false;
+//
+//    auto workEnd = chrono::high_resolution_clock::now();
+//    uint64_t workDuration = chrono::duration_cast<chrono::nanoseconds>(workEnd - workStart).count();
+//
+//    stats->at("work").count++;
+//    stats->at("work").nsSum += workDuration;
+//}
+//
+//void ProfilerRegister::discardWorkTimer() {
+//    workTimerRunning = false;
+//}
+//
+//void ProfilerRegister::reset_worked_for() {
+//    assert(stats->find("work") != stats->end());
+//    stats->at("work").count = 0;
+//    stats->at("work").nsSum = 0;
+//}
+//
+//double ProfilerRegister::worked_for_ms() {
+//    assert(!workTimerRunning);
+//    assert(stats->find("work") != stats->end());
+//    return (double)stats->at("work").nsSum / (1000*1000);
+//}
 
-    if (stats->find(key) == stats->end()) {
-        stats->insert({ key, Measurement() });
-    }
+// void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (*rankToProcessorName) (size_t), MPI_Comm comm) {
+//    // Save the time passed once so it will be the same for all measurements collected during one call to this function
+// //    int secondsPassed = profilers->begin()->second->secondsPassed();
 
-    stats->at(key).count++;
-    stats->at(key).nsSum += callDuration; 
-}
+//    // First, gather the profiling data for all timers
+//    // Iterating over a std::map is actually sorted by key -> We will always collect the correct timing data
+//    for (auto timerPair: *profilers) {
+//        auto timer = timerPair.second;
+//        if (timer->isRunning()) {
+//            throw runtime_error("Trying to save profiling data while timer " + timer->getName() + " is still running!");
+//        }
 
-void ProfilerRegister::startWorkTimer() {
-    assert(!workTimerRunning);
-    workTimerRunning = true;
+//        // Get timer histogram
+//        //shared_ptr<vector<uint64_t>> timings = timer->getHistogram()->data();
+       
+//        // Gather data from all ranks and save to file
+//        if (master) {
+//            //auto allTimingsVec = make_shared<vector<uint64_t>>(num_ranks * timings->size());
+//            //MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
+//            //        allTimingsVec->data(), FractionalProfiler::FractionalHistogram::numBins, MPI_UINT64_T,
+//            //        0, comm);
 
-    workStart = chrono::high_resolution_clock::now();
-}
+//            //proFile = FractionalProfiler::writeTimingsStats(allTimingsVec, move(proFile), timer->getName(), rankToProcessorName, secondsPassed);
+//            //callsPerSecondFile = FractionalProfiler::writeCallsPerSecondsStats(timer->getName(), secondsPassed, timer->eventsPerSecond(), move(callsPerSecondFile));
+//        } else {
+//            //MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
+//            //        nullptr, 0, MPI_UINT64_T, 0, comm);
+//        }
+//    }
 
-void ProfilerRegister::endWorkTimer() {
-    assert(stats->find("work") != stats->end());
-    assert(workTimerRunning);
-    workTimerRunning = false;
+// }
 
-    auto workEnd = chrono::high_resolution_clock::now();
-    uint64_t workDuration = chrono::duration_cast<chrono::nanoseconds>(workEnd - workStart).count();
-
-    stats->at("work").count++;
-    stats->at("work").nsSum += workDuration;
-}
-
-void ProfilerRegister::discardWorkTimer() {
-    workTimerRunning = false;
-}
-
-void ProfilerRegister::reset_worked_for() {
-    assert(stats->find("work") != stats->end());
-    stats->at("work").count = 0;
-    stats->at("work").nsSum = 0;
-}
-
-double ProfilerRegister::worked_for_ms() {
-    assert(!workTimerRunning);
-    assert(stats->find("work") != stats->end());
-    return (double)stats->at("work").nsSum / (1000*1000);
-}
-
-void ProfilerRegister::saveProfilingData(bool master, size_t num_ranks, string (*rankToProcessorName) (size_t), MPI_Comm comm) {
-    // Save the time passed once so it will be the same for all measurements collected during one call to this function
-    int secondsPassed = profilers->begin()->second->secondsPassed();
-
-    // First, gather the profiling data for all timers
-    // Iterating over a std::map is actually sorted by key -> We will always collect the correct timing data
-    for (auto timerPair: *profilers) {
-        auto timer = timerPair.second;
-        if (timer->isRunning()) {
-            throw runtime_error("Trying to save profiling data while timer " + timer->getName() + " is still running!");
-        }
-
-        // Get timer histogram
-        shared_ptr<vector<uint64_t>> timings = timer->getHistogram()->data();
-        
-        // Gather data from all ranks and save to file
-        if (master) {
-            auto allTimingsVec = make_shared<vector<uint64_t>>(num_ranks * timings->size());
-            MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
-                    allTimingsVec->data(), FractionalProfiler::FractionalHistogram::numBins, MPI_UINT64_T,
-                    0, comm);
-
-            proFile = FractionalProfiler::writeTimingsStats(allTimingsVec, move(proFile), timer->getName(), rankToProcessorName, secondsPassed);
-            callsPerSecondFile = FractionalProfiler::writeCallsPerSecondsStats(timer->getName(), secondsPassed, timer->eventsPerSecond(), move(callsPerSecondFile));
-        } else {
-            MPI_Gather(timings->data(), timings->size(), MPI_UINT64_T,
-                    nullptr, 0, MPI_UINT64_T, 0, comm);
-        }
-    }
-
-}
-
-unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsHeader(unique_ptr<ostream> file) {
-    if (file == nullptr) {
-        throw runtime_error("Stream ptr should not be a nullptr");
-    }
-    *file << "timer,secondsPassed,callsPerSecond" << endl;
-
-    return file;
-}
-
-unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file) {
-    if (file == nullptr) {
-        throw runtime_error("Ouput stream pointer is nullptr");
-    } else if (secondsPassed < 0) {
-        throw runtime_error("< 0 seconds passed");
-    } else if (callsPerSecond < 0) {
-        throw runtime_error("< 0 calls per second");
-    }
-    *file << timer << "," << to_string(secondsPassed) << "," << to_string(callsPerSecond) << endl;
-
-    return file;
-}
+//unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsHeader(unique_ptr<ostream> file) {
+//    if (file == nullptr) {
+//        throw runtime_error("Stream ptr should not be a nullptr");
+//    }
+//    *file << "timer,secondsPassed,callsPerSecond" << endl;
+//
+//    return file;
+//}
+//
+//unique_ptr<ostream> FractionalProfiler::writeCallsPerSecondsStats(string timer, int secondsPassed, float callsPerSecond, unique_ptr<ostream> file) {
+//    if (file == nullptr) {
+//        throw runtime_error("Ouput stream pointer is nullptr");
+//    } else if (secondsPassed < 0) {
+//        throw runtime_error("< 0 seconds passed");
+//    } else if (callsPerSecond < 0) {
+//        throw runtime_error("< 0 calls per second");
+//    }
+//    *file << timer << "," << to_string(secondsPassed) << "," << to_string(callsPerSecond) << endl;
+//
+//    return file;
+//}
 
 unique_ptr<ostream> ProfilerRegister::writeStatsHeader(unique_ptr<ostream> file) {
     assert(*file);
@@ -529,57 +514,57 @@ void ProfilerRegister::writeStats(string (*rankToProcessorName) (size_t)) {
     ParallelContext::mpi_gather_custom(prepare_send_cb, process_recv_cb);
 }
 
-const string FractionalProfiler::FractionalHistogram::binName(uint16_t bin) {
-    auto to_string_with_precision = [](const float value, const int n = 3) {
-        std::ostringstream out;
-        out.precision(n);
-        out << std::fixed << value;
-        return out.str();
-    };
-
-    // See getBin() for memory layout
-    if (bin < 100) {
-        float oneOverFrac = (float)bin / 10 + 1;
-        float to = 1 / oneOverFrac;
-        float from = 1 / (oneOverFrac + 0.1);
-        return to_string_with_precision(from) + " to " + to_string_with_precision(to);
-    } else if (bin == 100) {
-        return "0.999 to 1.001";
-    } else {
-        float from = ((float)bin - 101) / 10 + 1;
-        float to = from + 0.1;
-        return to_string_with_precision(from) + " to " + to_string_with_precision(to);
-    } 
-}
+//const string FractionalProfiler::FractionalHistogram::binName(uint16_t bin) {
+//    auto to_string_with_precision = [](const float value, const int n = 3) {
+//        std::ostringstream out;
+//        out.precision(n);
+//        out << std::fixed << value;
+//        return out.str();
+//    };
+//
+//    // See getBin() for memory layout
+//    if (bin < 100) {
+//        float oneOverFrac = (float)bin / 10 + 1;
+//        float to = 1 / oneOverFrac;
+//        float from = 1 / (oneOverFrac + 0.1);
+//        return to_string_with_precision(from) + " to " + to_string_with_precision(to);
+//    } else if (bin == 100) {
+//        return "0.999 to 1.001";
+//    } else {
+//        float from = ((float)bin - 101) / 10 + 1;
+//        float to = from + 0.1;
+//        return to_string_with_precision(from) + " to " + to_string_with_precision(to);
+//    } 
+//}
 
 shared_ptr<map<string, ProfilerRegister::Measurement>> ProfilerRegister::getStats() {
     assert(stats != nullptr);
     return stats;
 }
 
-void ProfilerRegister::saveWorkByRank(bool reset) {
-    auto work = work_by_rank(); // Will perform an MPI_Allgather
-    if (reset) {
-        reset_worked_for();
-    }
-
-    if (!ParallelContext::master()) {
-        return;
-    }
-    
-    assert(workByRankFile != nullptr && *workByRankFile);
-    
-    for (size_t rank = 0; rank < work->size(); rank++) {
-        *workByRankFile << num_rebalances << "," << rank << "," << work->at(rank) << endl;
-    }
-    assert(num_rebalances < numeric_limits<decltype(num_rebalances)>::max());
-    num_rebalances++;
-}
-
-std::shared_ptr<vector<double>> ProfilerRegister::work_by_rank() {
-    double local_work = worked_for_ms();
-    shared_ptr<doubleVector> work = ParallelContext::mpi_allgather(local_work);
-    assert(work != nullptr);
-    assert(work->size() == ParallelContext::num_ranks());
-    return work;
-}
+//void ProfilerRegister::saveWorkByRank(bool reset) {
+//    auto work = work_by_rank(); // Will perform an MPI_Allgather
+//    if (reset) {
+//        reset_worked_for();
+//    }
+//
+//    if (!ParallelContext::master()) {
+//        return;
+//    }
+//    
+//    assert(workByRankFile != nullptr && *workByRankFile);
+//    
+//    for (size_t rank = 0; rank < work->size(); rank++) {
+//        *workByRankFile << num_rebalances << "," << rank << "," << work->at(rank) << endl;
+//    }
+//    assert(num_rebalances < numeric_limits<decltype(num_rebalances)>::max());
+//    num_rebalances++;
+//}
+//
+//std::shared_ptr<vector<double>> ProfilerRegister::work_by_rank() {
+//    double local_work = worked_for_ms();
+//    shared_ptr<doubleVector> work = ParallelContext::mpi_allgather(local_work);
+//    assert(work != nullptr);
+//    assert(work->size() == ParallelContext::num_ranks());
+//    return work;
+//}
