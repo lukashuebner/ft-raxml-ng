@@ -1,6 +1,4 @@
-# RAxML Next Generation
-
-[![Build Status](https://www.travis-ci.org/amkozlov/raxml-ng.svg?branch=master)](https://www.travis-ci.org/amkozlov/raxml-ng) [![DOI](https://zenodo.org/badge/75947982.svg)](https://zenodo.org/badge/latestdoi/75947982) [![License](https://img.shields.io/badge/license-AGPL-blue.svg)](http://www.gnu.org/licenses/agpl-3.0.en.html)
+# Fault-Tolerant RAxML Next Generation (FT-RAxML-NG)
 
 ## Introduction
 
@@ -8,23 +6,33 @@ RAxML-NG is a phylogenetic tree inference tool which uses maximum-likelihood (ML
 
 RAxML-NG offers improvements in speed, flexibility and user-friendliness over the previous RAxML versions. It also implements some of the features previously available in ExaML (Kozlov et al. 2015), including checkpointing and efficient load balancing for partitioned alignments (Kobert et al. 2014).
 
-RAxML-NG is currently under active development, and the mid-term goal is to have most functionality of RAxML 8.x covered.
-You can see some of the planned features [here](https://github.com/amkozlov/raxml-ng/issues).
+## Fault Tolerance
+FT-RAxML-NG is expanded to include support for failing nodes during computations on large clusters. [ULFM](https://fault-tolerance.org/) is used to detect failures and fix the MPI communicator. ULFM is a expansion of the OpenMPI MPI implementation. To get failure tolerance, you need to compile FT-RAxML-NG against ULFM and run in using ULFM's `mpirun`. FT-RAxML-NG will then automatically detect and mitigate failing ranks.
 
-Documentation: [github wiki](https://github.com/amkozlov/raxml-ng/wiki)
+### Installing ULFM on a cluster
+If your cluster environment does not include an up-to date ULFM installation, you can try installing one into your home directory.
 
-## Installation instructions
+0. First, create the target directry, for example `mkdir "$HOME/ulfm"`.
+1. Download and extract the current version of ULFM from [the official repo](https://bitbucket.org/icldistcomp/ulfm2/downloads/)¹
+2. Configure ULFM using `./configure --prefix="$HOME/ulfm"`
+3. Build using `make -j`
+4. Install ULFM locally using `make install`
 
-* For most desktop Unix/Linux and macOS systems, the easiest way to install RAxML-NG is by using the pre-compiled binary:  
-[**Download 64-bit Linux binary**](https://github.com/amkozlov/raxml-ng/releases/download/0.9.0/raxml-ng_v0.9.0_linux_x86_64.zip)  
-[**Download 64-bit OSX/macOS binary**](https://github.com/amkozlov/raxml-ng/releases/download/0.9.0/raxml-ng_v0.9.0_macos_x86_64.zip)
+¹ Note, that we encountered problems with ULFM 4.0.2 on some systems. You can also try current development version from git. We had success on our systems with commit 0823ee3e57d.
 
-* For clusters/supercomputers (i.e., if you want to use MPI), please use the following installation package which contains pre-built *libpll*. You will need `GCC 6.4+` and `CMake 3.0.2+` in order to compile RAxML-NG for your system.  
-[**Download RAxML-NG-MPI for Linux**](https://github.com/amkozlov/raxml-ng/releases/download/0.9.0/raxml-ng_v0.9.0_linux_x86_64_MPI.zip)
+Ensure to set the following environment variables when _compiling_ and _running_ FT-RAxML-NG. 
+```
+# In this example $HOME/ulfm" is the prefix we installed ULFM into
+export PATH="$HOME/ulfm/bin:$PATH"
+export CPATH="$HOME/ulfm/src:$CPATH"
+export LD_LIBRARY_PATH="$HOME/ulfm/lib:$LD_LIBRARY_PATH"
+```
 
-* Binaries for Windows will become available later on
+Your can verify that ULFM is used instead of a pre-installed MPI implementation by checking the output of `which mpirun`, which should point to your just installed binary. You can then proceed to build the MPI version of FT-RAxML-NG (see below).
 
-* If neither of the above options worked for you, please clone this repository and build RAxML-NG from scratch.
+## Installing (FT-)RAxML-NG
+
+Please clone this repository and build RAxML-NG from scratch.
 
 1. **Install the dependecies.** On Ubuntu (and other Debian-based systems), you can simply run:
 ```
@@ -33,92 +41,66 @@ sudo apt-get install flex bison libgmp3-dev
 For other systems, please make sure you have following packages/libraries installed:  
 [`GNU Bison`](http://www.gnu.org/software/bison/) [`Flex`](http://flex.sourceforge.net/) [`GMP`](https://gmplib.org/)
 
-2. **Build RAxML-NG.**
-
-PTHREADS version:
-
-```
-git clone --recursive https://github.com/amkozlov/raxml-ng
-cd raxml-ng
-mkdir build && cd build
-cmake ..
-make
-```
+2. **Build FT-RAxML-NG.**
 
 MPI version:
 
 ```
-git clone --recursive https://github.com/amkozlov/raxml-ng
-cd raxml-ng
+git clone --recursive https://github.com/lukashuebner/ft-raxml-ng
+cd ft-raxml-ng
 mkdir build && cd build
 cmake -DUSE_MPI=ON ..
 make
 ```
 
-Portable PTHREADS version (static linkage, compatible with old non-AVX CPUs):
+## Running FT-RAxML-NG
+Make sure you are using the mpirun shipped with ULFM. You can test this using `which mpirun`.  We recommend the following settings to reduce the number of false positive failure reports:
+```
+mpirun -n $SLURM_NTASKS \
+  --mca mpi_ft_enable true \
+  --mca mpi_ft_detector_thread true \
+  --mca mpi_ft_detector_period 0.3 \
+  --mca ft_detector_timeout 1 \
+  ../raxml-ng-mpi --search --msa inputMSA.phy --model inputModel.model --threads 1
+```
+This will increase ULFM's heartbeat period to 300 ms, and timeout to 1 s. It will also enable a separate thread responsible for sending and receiving heartbeats. See [this](https://fault-tolerance.org/2020/01/21/spurious-errors-lack-of-mpi-progress-and-failure-detection/) article on the ULFM website for details.
 
-```
-git clone --recursive https://github.com/amkozlov/raxml-ng
-cd raxml-ng
-mkdir build && cd build
-cmake -DSTATIC_BUILD=ON -DENABLE_RAXML_SIMD=OFF -DENABLE_PLLMOD_SIMD=OFF ..
-make
-```
+### Limitations
+Some RAxML-ng features are not failure-tolerant yet. For example, currently only `-search` mode without bootstrap replicas is supported. Also, only fine-grained parallelization with a single thread per rank is supported. 
+
+### Numerical Instability of Allreduce Operations
+Allreduce operations on floating-point values are numerically unstable. If the number of PEs
+which take part in the allreduce operation changes, the result might change as well. This is,
+because floating-point operations are only approximately associative and commutative. The
+changed order of operations will cause the small inaccuracies to pile up differently.
+This has impacts on the reproducibility of tree searches. When no failure occurred, we
+can always reproduce a result by using the same number of nodes, cores per node, SIMD kernel, compiler, linker, OS version and the same random seed on the same system.
+If a failure occurred, RAxML-ng will conduct different allreduce operations with a different
+number of PEs. To reproduce this result, we would have to simulate a failure at the exact same
+moment in the tree search. Implementing either a numerically stable allreduce operation or a
+failure-log to enhance reproducibility is subject of future work.
 
 ## Documentation and Support
 
-Documentation can be found in the [github wiki](https://github.com/amkozlov/raxml-ng/wiki). 
-For a quick start, please check out the [hands-on tutorial](https://github.com/amkozlov/raxml-ng/wiki/Tutorial).
-
-Also please check the online help with `raxml-ng -h`.
-
-If still in doubt, please feel free to post to the [RAxML google group](https://groups.google.com/forum/#!forum/raxml).
-
-## Usage examples
-
-  1. Perform single tree inference on DNA alignment 
-     (random starting tree, general time-reversible model, ML estimate of substitution rates and
-      nucleotide frequencies, discrete GAMMA model of rate heterogeneity with 4 categories):
-
-     `./raxml-ng --msa testDNA.fa --model GTR+G`
-
-  2. Perform an all-in-one analysis (ML tree search + non-parametric bootstrap) 
-     (10 randomized parsimony starting trees, fixed empirical substitution matrix (LG),
-      empirical aminoacid frequencies from alignment, 8 discrete GAMMA categories,
-      200 bootstrap replicates):
-
-     `./raxml-ng --all --msa testAA.fa --model LG+G8+F --tree pars{10} --bs-trees 200`
-
-
-  3. Optimize branch lengths and free model parameters on a fixed topology
-     (using multiple partitions with proportional branch lengths)
-
-     `./raxml-ng --evaluate --msa testAA.fa --model partitions.txt --tree test.tree --brlen scaled`
-
-  4. Map support values from existing set of replicate trees:
-
-     `./raxml-ng --support --tree bestML.tree --bs-trees bootstraps.tree`
+RAxML-NG, including documentation, a tutorial, and support can be found [here](https://github.com/amkozlov/raxml-ng). 
 
 ## License and citation
 
 The code is currently licensed under the GNU Affero General Public License version 3.
 
-When using RAxML-NG, please cite [this paper](https://doi.org/10.1093/bioinformatics/btz305):
+When using the fault-tolerant FT-RAxML-NG, please cite [this paper](https://www.biorxiv.org/content/10.1101/2021.01.15.426773v1):
+
+Lukas Hübner, Alexey M. Kozlov, Demian Hespe, Peter Sanders, Alexandros Stamatakis (2021)
+**Exploring Parallel MPI Fault Tolerance Mechanisms for Phylogenetic Inference with RAxML-NG**
+*Preprint at bioRxiv*
+doi:[10.1101/2021.01.15.426773](https://doi.org/10.1101/2021.01.15.426773)
+
+Additionally, please mention that FT-RAxML-NG is an extension of RAxML-NG and cite [this paper](https://doi.org/10.1093/bioinformatics/btz305) as well:
 
 Alexey M. Kozlov, Diego Darriba, Tom&aacute;&scaron; Flouri, Benoit Morel, and Alexandros Stamatakis (2019)
 **RAxML-NG: A fast, scalable, and user-friendly tool for maximum likelihood phylogenetic inference.** 
 *Bioinformatics, btz305* 
 doi:[10.1093/bioinformatics/btz305](https://doi.org/10.1093/bioinformatics/btz305)
-
-## The team
-
-* Alexey Kozlov
-* Alexandros Stamatakis
-* Diego Darriba
-* Tom&aacute;&scaron; Flouri
-* Benoit Morel
-* Ben Bettisworth
-* Sarah Lutteropp
 
 ## References
 
@@ -140,4 +122,3 @@ doi:[10.1093/bioinformatics/btv184](https://doi.org/10.1093/bioinformatics/btv18
 * Kobert K., Flouri T., Aberer A., Stamatakis A. (2014)
 **The divisible load balance problem and its application to phylogenetic inference.**
 *Brown D., Morgenstern B., editors. (eds.) Algorithms in Bioinformatics, Vol. 8701 of Lecture Notes in Computer Science. Springer, Berlin, pp. 204–216*
-

@@ -4,11 +4,9 @@ library(purrr)
 library(readr)
 library(stringr)
 library(tidyr)
-library(xtable)
 
-dataDir <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/ft-evaluation/"
-plotDir <- "/home/lukas/Documents/Uni/Masterarbeit/thesis/figures"
-recoveryDataDir <- "/home/lukas/Documents/Uni/Masterarbeit/profiling/recovery"
+dataDirMiniCheckpointing <- "/home/lukas/Promotion/profiling/ft-evaluation/mini-checkpointing"
+dataDirRecovery <- "/home/lukas/Promotion/profiling/ft-evaluation/recovery-overhead"
 
 # Dataset to verbose label
 dataset2Label <- function(s) {
@@ -34,235 +32,221 @@ readFile <- function(flnm) {
 }
 
 # Load all profiling data from multiple runs and aggregate it into `data`
-overallStats <-
+perRankStats <-
   list.files(
-    path = dataDir,  
+    path = dataDirMiniCheckpointing,  # ADJUST THIS!!
     pattern = "*.overallStats.csv", 
-    full.names = T) %>% 
+    full.names = TRUE
+  ) %>% 
   map_df(~readFile(.)) %>%
   as_tibble() %>%
   mutate(dataset = factor(dataset))
 
-recoveryStats <-
-  list.files(
-    path = recoveryDataDir,  
-    pattern = "*.csv", 
-    full.names = T) %>% 
-  map_df(~readFile(.)) %>%
-  as_tibble() %>%
-  mutate(dataset = factor(dataset))
-
-jkruntimeStats <- read_csv(
-  paste(dataDir, "ft-eval-runtimes.csv", sep = "/"),
+runtimeStats <- read_csv(
+  paste(dataDirMiniCheckpointing, "ft-eval-runtimes.csv", sep = "/"),
   col_types = cols(
     dataset = col_character(),
-    runtime = col_double()
+    msRuntime = col_double()
   )) %>%
-  mutate(dataset = factor(dataset)) %>%
-  rename(sRuntime = runtime)
-
-# overallStats
-nsSum_long <- overallStats %>% select(- starts_with("num")) %>% gather(key = timer, value = nsSum, starts_with("nsSum"))
-num_long <- overallStats %>% select(- starts_with("nsSum")) %>% gather(key = timer, value = num, starts_with("num"))
-nsSum_long$timer = str_replace(nsSum_long$timer, "nsSum", "")
-num_long$timer = str_replace(num_long$timer, "num", "")
-stats_long <- inner_join(by = c("rank", "processor", "dataset", "timer"), num_long, nsSum_long)
-stats_long$nsSum <- stats_long$nsSum / stats_long$num
-
-# recovery
-nsSum_long <- recoveryStats %>% select(- starts_with("num")) %>% gather(key = timer, value = nsSum, starts_with("nsSum"))
-num_long <- recoveryStats %>% select(- starts_with("nsSum")) %>% gather(key = timer, value = num, starts_with("num"))
-nsSum_long$timer = str_replace(nsSum_long$timer, "nsSum", "")
-num_long$timer = str_replace(num_long$timer, "num", "")
-recovery_long <- inner_join(by = c("rank", "processor", "dataset", "timer"), num_long, nsSum_long)
-recovery_long$nsSum <- recovery_long$nsSum / recovery_long$num
-
-
-# overallStats
-stats_long <- stats_long %>% group_by(dataset, timer) %>%
-  summarise(
-    nsAvg = mean(nsSum),
-    nsSD = sd(nsSum),
-  ) %>%
   mutate(
-    msAvg = nsAvg / 10^6,
-    msSD = nsSD / 10^6
-  ) %>%
-  arrange(msAvg)
-
-summary_stats <- stats_long %>%
-  #filter(!(timer %in% c("LoadAssignmentDataFirstLoad", "MiniCheckpoint"))) %>%
-  filter(!(timer %in% c("LoadAssignmentDataFirstLoad", "UpdateTree", "UpdateModels", "work"))) %>%
-  group_by(dataset) %>%
-  summarise(
-    msRestoreSearchState = sum(msAvg)
+    dataset  = factor(dataset),
+    sRuntime = msRuntime / 1000
   )
 
-# recoveryStats
-recovery_long <- recovery_long %>% group_by(dataset, timer) %>%
-  summarise(
-    nsAvg = mean(nsSum),
-    nsSD = sd(nsSum),
+# Aggregate the per rank statistics into per measurement statistics
+## First, convert the measurements into a long format
+perRankStats_long_time <- perRankStats %>%
+  select(- starts_with("num")) %>%
+  gather(
+    key = timer,
+    value = nsSum,
+    starts_with("nsSum")
   ) %>%
-  mutate(
-    msAvg = nsAvg / 10^6,
-    msSD = nsSD / 10^6
-  ) %>%
-  arrange(msAvg)
-
-recovery_summary_stats <- recovery_long %>%
-  filter(!(timer %in% c("LoadAssignmentDataFirstLoad", "UpdateTree", "UpdateModels", "work"))) %>%
-  group_by(dataset) %>%
-  summarise(
-    msRestoreSearchState = sum(msAvg)
+  mutate (
+    timer = str_replace(timer, "nsSum", "")
   )
 
+perRankStats_long_num <- perRankStats %>%
+  select(- starts_with("nsSum")) %>%
+  gather(
+    key = timer,
+    value = num,
+    starts_with("num")
+  ) %>%
+  mutate(
+    timer = str_replace(timer, "num", "")
+  )
 
+perRankStats_long <- inner_join(
+  by = c("rank", "processor", "dataset", "timer"),
+  perRankStats_long_time,
+  perRankStats_long_num
+) %>%
+  rename(
+    nsRankwiseTotalTime = nsSum,
+    nCallsOnThisRank = num
+  ) %>%
+  mutate(
+    nsRankwiseTimePerCall = nsRankwiseTotalTime / nCallsOnThisRank
+  )
 
-stats_summary <- inner_join(
-  stats_long %>%
-    #filter(!(timer %in% c("LoadAssignmentDataFirstLoad", "MiniCheckpoint"))) %>%
-    filter(!(timer %in% c("LoadAssignmentDataFirstLoad", "UpdateTree", "UpdateModels", "work"))) %>%
-    group_by(dataset) %>%
-    summarise(
-      msRestoreSearchState = sum(msAvg),
-      msSDRestoreSearchState = sum(msSD**2)
-    ) %>%
-    mutate(
-      msSDRestoreSearchState = sqrt(msSDRestoreSearchState)
-    ),
-  dataDistribution <- tribble(
-    ~dataset           , ~taxa, ~sites , ~ type,
-    "aa_rokasA1_20@4"  ,  60  ,  172073, "AA",
-    "aa_rokasA4_20@8"  , 160  , 1806035, "AA", 
-    "aa_rokasA4_20@20"  , 160  , 1806035, "AA", 
-    "aa_rokasA8_20@4"  ,  80  ,  504850, "AA",             
-    "dna_PeteD8_13@20" , 174  , 3011099, "DNA",                  
-    "dna_rokasD1_20@20",  37  , 1338678, "DNA",        
-    "dna_rokasD2a_20@1", 144  , 1240377, "DNA",        
-    "dna_rokasD4_20@8" , 160  ,  237363, "DNA",       
-    "dna_ShiD9_20@1"   , 815  ,   20364, "DNA",
-    "dna_rokasD7_20@20",  46  ,21410970, "DNA"
-  ) %>% mutate(dataset = as.factor(dataset)),
-  by = "dataset"
-)
+# How many tree and models updates are there per dataset?
+perRankStats_long %>%
+  filter(
+    rank == 0, # There should be the same number of mini-checkpoints per rank
+    timer %in% c("UpdateTree", "UpdateModels")
+  )
 
-LoadMSA_profile <- stats_long %>% select(-starts_with("ns")) %>% filter(timer == "LoadAssignmentData")
+## Next, aggregate per rank measurements into per dataset summary statistics
+acrossRanksStats_long <- perRankStats_long %>%
+  group_by(dataset, timer) %>%
+  summarise(
+    .groups = "keep",
+    nsAcrossRanksTimePerCallAvg = mean(nsRankwiseTimePerCall),
+    nsAcrossRanksTimePerCallSD = sd(nsRankwiseTimePerCall),
+    nsAcrossRanksTotalTimeAvg = mean(nsRankwiseTotalTime),
+    nsAcrossRanksTotalTimeSD = sd(nsRankwiseTotalTime)
+  ) %>%
+  mutate(
+    msAcrossRanksTimePerCallAvg = nsAcrossRanksTimePerCallAvg / 10^6,
+    msAcrossRanksTimePerCallSD = nsAcrossRanksTimePerCallSD / 10^6,
+    msAcrossRanksTotalTimeAvg = nsAcrossRanksTotalTimeAvg / 10^6,
+    msAcrossRanksTotalTimeSD = nsAcrossRanksTotalTimeSD / 10^6,
+  )
 
+# Plot comparing the time a rank requires to load a part of the MSA {the first time, if someone else already loaded it}
 ggplot() +
   geom_errorbar(
-    data = filter(stats_long, timer == "LoadAssignmentData"),
-    aes(ymin = msAvg - msSD, ymax = msAvg + msSD, x = dataset, color = "further load op.")
+    data = filter(acrossRanksStats_long, timer == "LoadAssignmentData"),
+    aes(ymin = msAvg - msSD, ymax = msAvg + msSD, x = dataset, color = "rebalancing")
   ) +
   geom_point(
-    data = filter(stats_long, timer == "LoadAssignmentData"),
-    aes(y = msAvg, x = dataset, color = "further load op.")
+    data = filter(acrossRanksStats_long, timer == "LoadAssignmentData"),
+    aes(y = msAvg, x = dataset, color = "rebalancing")
   ) +
   geom_errorbar(
-    data = filter(stats_long, timer == "LoadAssignmentDataFirstLoad"),
+    data = filter(acrossRanksStats_long, timer == "LoadAssignmentDataFirstLoad"),
     aes(ymin = msAvg - msSD, ymax = msAvg + msSD, x = dataset, color = "initial load op.")
   ) +
   geom_point(
-    data = filter(stats_long, timer == "LoadAssignmentDataFirstLoad"),
+    data = filter(acrossRanksStats_long, timer == "LoadAssignmentDataFirstLoad"),
     aes(y = msAvg, x = dataset, color = "initial load op.")
   ) +
   theme_bw() +
   theme(
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    axis.text.x = element_text(angle = 47, hjust = 1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = c(0.15, 0.85),
     legend.title = element_blank()
   ) +
   ylab("time [ms]") +
   scale_x_discrete(
     labels = c(
-      # "aa_rokasA1_10@4" = "AA rokasA1 @ 40 ranks\n172k sites * 60 taxa",
-      # "aa_rokasA4_20@8" = "AA rokasA4 @ 160 ranks\n1806k sites * 58 taxa",
-      # "aa_rokasA8_20@4" = "AA rokasA8 @ 80 ranks\n505k sites * 95 taxa",
-      # "dna_PeteD8_13@20" = "DNA PeteD8 @ 260 ranks\n3011k sites * 174 taxa",
-      # "dna_rokasD1_20@20" = "DNA rokasD1 @ 400 ranks\n1339k sites * 37 taxa",
-      # "dna_rokasD2a_20@1" = "DNA rokasD2a @ 20 ranks\n1240k sites * 144 taxa",
-      # "dna_rokasD4_20@8" = "DNA rokasD4 @ 160 ranks\n240k sites * 46 taxa",
-      # "dna_ShiD9_20@1" = "DNA ShiD9 @ 20 ranks\n20k sites * 815 taxa"
-      "aa_rokasA1_10@4" = "AA rokasA1 @ 40 ranks\n10 MiB",
-      "aa_rokasA4_20@8" = "AA rokasA4 @ 160 ranks\n100 MiB",
-      "aa_rokasA8_20@4" = "AA rokasA8 @ 80 ranks\n46 MiB",
-      "dna_PeteD8_13@20" = "DNA PeteD8 @ 260 ranks\n500 MiB",
-      "dna_rokasD1_20@20" = "DNA rokasD1 @ 400 ranks\n48 MiB",
-      "dna_rokasD2a_20@1" = "DNA rokasD2a @ 20 ranks\n171 MiB",
-      "dna_rokasD4_20@8" = "DNA rokasD4 @ 160 ranks\n11 MiB",
-      "dna_ShiD9_20@1" = "DNA ShiD9 @ 20 ranks\n16 MiB"
+      "aa_rokasA1_10@4" = "AA rokasA1 @ 40 ranks\n172k sites · 60 taxa",
+      "aa_rokasA4_20@8" = "AA rokasA4 @ 160 ranks\n1806k sites · 58 taxa",
+      "aa_rokasA8_20@4" = "AA rokasA8 @ 80 ranks\n505k sites · 95 taxa",
+      "dna_PeteD8_13@20" = "DNA PeteD8 @ 260 ranks\n3011k sites · 174 taxa",
+      "dna_rokasD1_20@20" = "DNA rokasD1 @ 400 ranks\n1339k sites · 37 taxa",
+      "dna_rokasD2a_20@1" = "DNA rokasD2a @ 20 ranks\n1240k sites · 144 taxa",
+      "dna_rokasD4_20@8" = "DNA rokasD4 @ 160 ranks\n240k sites · 46 taxa",
+      "dna_ShiD9_20@1" = "DNA ShiD9 @ 20 ranks\n20k sites · 815 taxa"
     ),
-    limits = (stats_long %>% filter(timer == "LoadAssignmentDataFirstLoad") %>% arrange(msAvg))$dataset
+    limits = (acrossRanksStats_long %>% filter(timer == "LoadAssignmentDataFirstLoad") %>% arrange(msAvg))$dataset
   )
-ggsave(
-  filename = "time-for-loading-msa.pdf",
-  path = plotDir,
-  device = "pdf",
-  width = 16.7976,
-  height = 10.4332,
-  units = "cm"
-)
 
-bind_rows(stats_long %>%
-    filter(!(timer %in% c("LoadAssignmentData", "RedoPartitionAssignment", "LoadAssignmentDataFirstLoad", "TreeinfoUpdatePartialsAndCLVs", "UpdateTree", "UpdateModels", "work",  "TreeinfoInit"))) %>%
+# Quick plot showing the ratio between time spent updating the models and updating the tree
+ggplot(acrossRanksStats_long) +
+  geom_bar(aes(x = dataset, fill = timer, y = msAcrossRanksTotalTimeAvg), stat="identity")
+
+# Plot the time required when restoring
+bind_rows(
+  acrossRanksStats_long %>%
+    filter(timer %in% c(
+      "BalanceLoad", "ComputePartMasters", "CreateTree", "DestroyPartitions",
+      "RestoreModels", "TreeinfoDestroy", "TreeinfoResetPartitions", "UTreeGraphDestroy")
+    ) %>%
     group_by(dataset) %>%
-    summarise(msAvg = sum(msAvg)) %>%
+    summarize(msAcrossRanksTimePerCallAvg = sum(msAcrossRanksTimePerCallAvg), .groups = "keep") %>%
     mutate(timer = "Other"),
-  stats_long %>%
+  acrossRanksStats_long %>%
     filter(timer %in% c("LoadAssignmentData", "RedoPartitionAssignment", "TreeinfoUpdatePartialsAndCLVs", "TreeinfoInit")) %>%
-    select(dataset, timer, msAvg)
+    select(dataset, timer, msAcrossRanksTimePerCallAvg)
 ) %>%
 ggplot() +
-  geom_bar(aes(x = dataset, y = msAvg, fill = timer), stat = "identity") +
+  geom_bar(aes(x = dataset, y = msAcrossRanksTimePerCallAvg, fill = timer), stat = "identity") +
   theme_bw() +
   theme(
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    axis.text.x = element_text(angle = 60, hjust = 1),
-    legend.position = c(0.2, 0.6)
-    #legend.title = element_blank()
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = c(0.23, 0.65)
   ) +
   ylab("time [ms]") +
   scale_x_discrete(
     labels = c(
-      "aa_rokasA1_20@4" = "AA rokasA1 @ 80 ranks\n172k sites * 60 taxa",
-      "aa_rokasA4_20@8" = "AA rokasA4 @ 160 ranks\n1806k sites * 58 taxa",
-      "aa_rokasA4_20@20" = "AA rokasA4 @ 400 ranks\n1806k sites * 58 taxa",
-      "aa_rokasA8_20@4" = "AA rokasA8 @ 80 ranks\n505k sites * 95 taxa",
-      "dna_PeteD8_13@20" = "DNA PeteD8 @ 260 ranks\n3011k sites * 174 taxa",
-      "dna_rokasD1_20@20" = "DNA rokasD1 @ 400 ranks\n1339k sites * 37 taxa",
-      "dna_rokasD2a_20@1" = "DNA rokasD2a @ 20 ranks\n1240k sites * 144 taxa",
-      "dna_rokasD4_20@8" = "DNA rokasD4 @ 160 ranks\n240k sites * 46 taxa",
-      "dna_ShiD9_20@1" = "DNA ShiD9 @ 20 ranks\n20k sites * 815 taxa",
-      "dna_rokasD7_20@20" = "DNA TarvD7 @ 400 ranks\n21M sites * 37 taxa"
+      "aa_rokasA1_10@4" = "AA NagyA\n 40 ranks\n172k sites · 60 taxa",
+      "aa_rokasA4_20@8" = "AA ChenA4\n 160 ranks\n1806k sites · 58 taxa",
+      "aa_rokasA8_20@4" = "AA YangA8\n 80 ranks\n505k sites · 95 taxa",
+      "dna_PeteD8_13@20" = "DNA PeteD8\n 260 ranks\n3011k sites · 174 taxa",
+      "dna_rokasD1_20@20" = "DNA SongD1\n 400 ranks\n1339k sites · 37 taxa",
+      "dna_rokasD2a_20@1" = "DNA MisoD2a\n 20 ranks\n1240k sites · 144 taxa",
+      "dna_rokasD4_20@8" = "DNA XiD4\n 160 ranks\n240k sites · 46 taxa",
+      "dna_ShiD9_20@1" = "DNA ShiD9\n 20 ranks\n20k sites · 815 taxa"
     ),
-    limits = (
-      stats_long %>%
-        #filter(!(timer %in% c("LoadAssignmentDataFirstLoad", "MiniCheckpoint"))) %>%
-        filter(!(timer %in% c("LoadAssignmentDataFirstLoad", "UpdateTree", "UpdateModels", "work"))) %>%
-        
+    limits = acrossRanksStats_long %>%
+        filter(timer %in% c("LoadAssignmentData", "RedoPartitionAssignment", "TreeinfoUpdatePartialsAndCLVs", "TreeinfoInit", "Other")) %>%
         group_by(dataset) %>%
-        summarise(msAvg = sum(msAvg)) %>%
-        arrange(msAvg)
-    )$dataset
+        summarise(msRecovery = sum(msAcrossRanksTimePerCallAvg), .groups = "keep") %>%
+        arrange(msRecovery) %>%
+        pull(dataset)
   ) + 
-  scale_fill_brewer(type="qual") +
-  scale_y_continuous(breaks = scales::pretty_breaks(n = 5))
+  scale_fill_brewer(type="qual")
+ggsave("~/Promotion/figures/paper/time-for-recovery.pdf", width = 15, height = 10, units = "cm")
 
-ggsave(
-  filename = "time-for-fault-recovery.pdf",
-  path = plotDir,
-  device = "pdf",
-  width = 16.7976,
-  height = 10.4332,
-  units = "cm"
-)
+# Plot time required for mini-checkpointing
+acrossRanksStats_miniCheckpoints_long <- acrossRanksStats_long %>%
+  mutate(
+    # Prepare to compute the combined standard deviation via the sum of the variances
+    msAcrossRanksTotalTimeVar = msAcrossRanksTotalTimeSD ** 2
+  ) %>%
+  select(dataset, timer, msAcrossRanksTotalTimeAvg, msAcrossRanksTotalTimeVar) %>%
+  filter(timer %in% c("UpdateModels", "UpdateTree")) %>%
+  pivot_wider(
+    names_from = timer,
+    values_from = c(msAcrossRanksTotalTimeAvg, msAcrossRanksTotalTimeVar)
+  ) %>%
+  mutate(
+    timer = "MiniCheckpoint",
+    msAcrossRanksTotalTimeAvg = (msAcrossRanksTotalTimeAvg_UpdateModels + msAcrossRanksTotalTimeAvg_UpdateTree) / 2.,
+    msAcrossRanksTotalTimeSD = sqrt((msAcrossRanksTotalTimeVar_UpdateModels + msAcrossRanksTotalTimeVar_UpdateTree) / 2.)
+  ) %>%
+  select(dataset, timer, msAcrossRanksTotalTimeAvg, msAcrossRanksTotalTimeSD)
 
-ggplot(filter(stats_long, timer == "UpdateModels", dataset != "aa_KatzA10_20@2", dataset != "aa_GitzA12_20@1")) +
-  geom_point(aes(x = dataset, y = msAvg)) +
-  geom_errorbar(aes(ymin = msAvg - msSD, ymax = msAvg + msSD, x = dataset)) +
+acrossRanksStats_miniCheckpoints_long <- inner_join(
+  acrossRanksStats_miniCheckpoints_long,
+  runtimeStats,
+  by = c("dataset")
+) %>%
+  mutate(
+    percAcrossRanksTotalTimeAvg = msAcrossRanksTotalTimeAvg / msRuntime * 100,
+    percAcrossRanksTotalTimeSD = msAcrossRanksTotalTimeSD / msRuntime * 100
+  )
+
+### Oveall time for mini-checkpoints
+acrossRanksStats_miniCheckpoints_long %>%
+ggplot() +
+  geom_point(
+    aes(
+      x = dataset,
+      y = percAcrossRanksTotalTimeAvg
+  )) +
+  geom_errorbar(
+    aes(
+      ymin = percAcrossRanksTotalTimeAvg - percAcrossRanksTotalTimeSD,
+      ymax = percAcrossRanksTotalTimeAvg + percAcrossRanksTotalTimeSD,
+      x = dataset
+  )) +
   theme_bw() +
   theme(
     panel.grid.major = element_blank(),
@@ -271,78 +255,21 @@ ggplot(filter(stats_long, timer == "UpdateModels", dataset != "aa_KatzA10_20@2",
     legend.position = c(0.23, 0.75)
     #legend.title = element_blank()
   ) +
-  ylab("time for mini-checkpoint [ms]") +
+  ylab("time for mini-checkpointing\n[% of runtime]") +
   scale_x_discrete(
     labels = c(
-      "aa_rokasA1_20@4" = "AA NagyA1 @ 80 ranks\n594 models",
-      "aa_rokasA4_20@8" = "AA ChenA4 @ 160 ranks\n1 model",
-      "aa_rokasA4_20@20" = "AA ChenA4 @ 400 ranks\n1 model",
-      "aa_rokasA8_20@4" = "AA YangA8 @ 80 ranks\n1122 models",
-      "dna_PeteD8_13@20" = "DNA PeteD8 @ 260 ranks\n4116 models",
-      "dna_rokasD1_20@20" = "DNA SongD1 @ 400 ranks\n1 model",
-      "dna_rokasD2a_20@1" = "DNA MisoD2a @ 20 ranks\n100 models",
-      "dna_rokasD4_20@8" = "DNA XiD4 @ 160 ranks\n1 model",
-      "dna_ShiD9_20@1" = "DNA ShiD9 @ 20 ranks\n29 models",
-      "dna_rokasD7_20@20" = "DNA TarvD7 @ 400 ranks\n1 model"
+      "aa_rokasA1_20@4" = "AA NagyA1\n80 ranks\n594 models",
+      "aa_rokasA4_20@8" = "AA ChenA4\n160 ranks\n1 model",
+      "aa_rokasA8_20@4" = "AA YangA8\n80 ranks\n1122 models",
+      "dna_PeteD8_13@20" = "DNA PeteD8\n260 ranks\n4116 models",
+      "dna_rokasD1_20@20" = "DNA SongD1\n400 ranks\n1 model",
+      "dna_rokasD4_20@8" = "DNA XiD4\n160 ranks\n1 model",
+      "dna_ShiD9_20@1" = "DNA ShiD9\n20 ranks\n29 models"
     ),
-    limits = (
-      stats_long %>%
-        filter(timer == "UpdateModels", dataset != "aa_KatzA10_20@2", dataset != "aa_GitzA12_20@1") %>%
-        arrange(msAvg)
-    )$dataset
+    limits = acrossRanksStats_miniCheckpoints_long %>% arrange(percAcrossRanksTotalTimeAvg) %>% pull(dataset)
   )
-ggsave(
-  filename = "time-for-mini-checkpoint.pdf",
-  path = plotDir,
-  device = "pdf",
-  width = 16.7976,
-  height = 10.4332,
-  units = "cm"
-)
+ggsave("~/Promotion/figures/paper/time-for-mini-checkpoints.pdf", width = 15, height = 8, units = "cm")
 
-ggplot(  ) +
-  geom_point(aes(x = dataset, y = msAvg)) +
-  geom_errorbar(aes(ymin = msAvg - msSD, ymax = msAvg + msSD, x = dataset)) +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    axis.text.x = element_text(angle = 60, hjust = 1),
-    legend.position = c(0.23, 0.75)
-    #legend.title = element_blank()
-  ) +
-  ylab("time to backup the current best tree [ms]") +
-  scale_x_discrete(
-    labels = c(
-      "aa_rokasA1_20@4" = "AA NagyA1 @ 80 ranks\n60 taxa",
-      "aa_rokasA4_20@8" = "AA ChenA4 @ 160 ranks\n58 taxa",
-      "aa_rokasA4_20@20" = "AA ChenA4 @ 400 ranks\n58 taxa",
-      "aa_rokasA8_20@4" = "AA YangA8 @ 80 ranks\n95 taxa",
-      "dna_PeteD8_13@20" = "DNA PeteD8 @ 260 ranks\n174 taxa",
-      "dna_rokasD1_20@20" = "DNA SongD1 @ 400 ranks\n37 taxa",
-      "dna_rokasD4_20@8" = "DNA XiD4 @ 160 ranks\n46 taxa",
-      "dna_rokasD7_20@20" = "AA TarvD7 @ 400 ranks\n36 taxa",
-      "aa_KatzA10_20@2" = "AA KatzA10 @ 40 ranks\n798 taxa",
-      "dna_ShiD9_20@1" = "DNA ShiD9 @ 20 ranks\n815 taxa",
-      "aa_GitzA12_20@1" = "AA GitzA12 @ 20 ranks\n1897 taxa"
-    ),
-    limits = (
-      stats_long %>%
-        filter(timer == "UpdateTree") %>%
-        arrange(msAvg)
-    )$dataset
-  )
-
-ggsave(
-  filename = "time-for-updating-tree.pdf",
-  path = plotDir,
-  device = "pdf",
-  width = 16.7976,
-  height = 10.4332,
-  units = "cm"
-)
-
-updateTree <- filter(stats_long, timer == "UpdateTree")
-updateTree$ranks <- c(400,160,400,400,160,80,80,260)
-updateTree$taxa <- c(37,46,36,58,58,60,95,174)
-corr.test(updateTree$taxa, updateTree$msAvg)
+### Hard facts 
+acrossRanksStats_miniCheckpoints_long %>%
+  select(dataset, percAcrossRanksTotalTimeAvg, percAcrossRanksTotalTimeSD)

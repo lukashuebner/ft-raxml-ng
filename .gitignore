@@ -43,3 +43,7 @@ release/
 # sbatch and data files
 *.sbatch
 *.phy
+
+# cmake output files
+compile_commands.json
+.clangd

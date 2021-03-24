@@ -168,7 +168,7 @@ string ParallelContext::mpi_err_to_string(int errorCode) {
   MPI_Error_class(errorCode, &errorClass);
   MPI_Error_string(errorClass, errorClassString, &errorClassStringLength);
 
-  return string(errorString) + " (" + string(errorClassString) + ")"; 
+  return string(errorString) + " (" + string(errorClassString) + ")";
 }
 #endif
 
@@ -191,12 +191,12 @@ void ParallelContext::update_world_parameters() {
   int numRanks = -1, rankId = -1, rc;
   if ((rc = MPI_Comm_size(_comm, &numRanks)) != MPI_SUCCESS) {
     LOG_ERROR << "A rank failure was detected, but getting the new communicator's size using "
-              << "MPI_Comm_size failed with err.: " << mpi_err_to_string(rc) << endl; 
+              << "MPI_Comm_size failed with err.: " << mpi_err_to_string(rc) << endl;
     throw UnrecoverableRankFailureException();
   }
   if ((rc = MPI_Comm_rank(_comm, &rankId)) != MPI_SUCCESS) {
     LOG_ERROR << "A rank failure was detected, but getting our new rank id using "
-              << "MPI_Comm_rank failed with err.: " << mpi_err_to_string(rc) << endl; 
+              << "MPI_Comm_rank failed with err.: " << mpi_err_to_string(rc) << endl;
     throw UnrecoverableRankFailureException();
   }
   assert(numRanks >= 1);
@@ -205,7 +205,7 @@ void ParallelContext::update_world_parameters() {
   _rank_id = (size_t)rankId;
   _local_rank_id = _num_ranks > _num_groups ? _rank_id : 0;
   detect_num_nodes();
-  log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
+  //log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
 }
 
 
@@ -685,7 +685,7 @@ void ParallelContext::global_broadcast_custom(std::function<int(void*, int)> pre
     buffer.reserve(sizeOfMessage);
   }
   global_mpi_barrier();
-  global_master_broadcast(buffer.data(), sizeOfMessage, root);  
+  global_master_broadcast(buffer.data(), sizeOfMessage, root);
 
   // Deserialize received objects (process_recv_cb)
   if (rank_id() != root) {

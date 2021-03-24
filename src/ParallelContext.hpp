@@ -8,15 +8,17 @@
 #include <string>
 #include <mutex>
 #include <cassert>
-
+#include <stdexcept>
 #include <functional>
 
 #include "io/BinaryStream.hpp"
-#include "common.h"
 #include "log.hpp"
 
 #ifdef _RAXML_MPI
 #include <mpi.h>
+#ifndef RAXML_FAILURES_SIMULATE
+#include <mpi-ext.h>
+#endif
 #endif
 
 #ifdef _RAXML_PTHREADS
@@ -225,7 +227,7 @@ private:
     if (_simulate_failure) {
       size_t oldRankId = rank_id();
       MPI_Comm newComm;
-      RAXML_UNUSED(mpi_call);
+      (void)(mpi_call);
   
       LOG_DEBUG << "Simulating failure" << std::endl;
   
@@ -272,20 +274,15 @@ private:
         throw UnrecoverableRankFailureException();
       }
       assert(_comm != MPI_COMM_NULL);
-      // As for the example in the ULFM documentation, freeing the communicator is necessary.
-      // If trying to do so, however, MPI_ERR_COMM (invalid communicator) will be returned. 
-      // --mca mpi_show_handle_leaks 1 does not show a leaked handle, so mayble MPIX_Comm_Shrink
-      // already frees the communicator.
-      // if ((rc = MPI_Comm_free(&_comm)) != MPI_SUCCESS) {
-      //   LOG_ERROR << "A rank failure was detected, but freeing the old communicator using "
-      //             << "MPI_Comm_free failed with err.: " << mpi_err_to_string(rc) << endl;
-      //   throw UnrecoverableRankFailureException();
-      // }
+      // As for the ULFM documentation, freeing the communicator is recommended but will probably
+      // not succeed. This is why we do not check for an error here.
+      // I checked that --mca mpi_show_handle_leaks 1 does not show a leaked handle
+      MPI_Comm_free(&_comm);
       _comm = newComm;
       update_world_parameters();
      throw RankFailureException();
     } else if (rc != MPI_SUCCESS) {
-      throw runtime_error("MPI call did non fail because of a faulty rank but still did not return MPI_SUCCESS");
+      throw std::runtime_error("MPI call did non fail because of a faulty rank but still did not return MPI_SUCCESS");
     }
   
     #endif
@@ -325,7 +322,7 @@ private:
 // Some assertions communicate over the network (for example to compute the loglh)
 // They may not handle failures correctly and should be disabled when simulating
 // failures.
-#ifdef RAXML_FAILURES_SIMULATE
+#if defined(RAXML_FAILURES_SIMULATE) && !defined (NDEBUG)
 //#define NON_FAILURE_TOLERANT_ASSERTS
 #endif
 
