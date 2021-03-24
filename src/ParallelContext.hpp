@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <memory>
 #include <string>
+#include <mutex>
 
 #include <functional>
 
@@ -245,7 +246,7 @@ private:
 // They may not handle failures correctly and should be disabled when simulating
 // failures.
 #ifdef RAXML_FAILURES_SIMULATE
-#define NON_FAILURE_TOLERANT_ASSERTS
+//#define NON_FAILURE_TOLERANT_ASSERTS
 #endif
 
 #endif /* RAXML_PARALLELCONTEXT_HPP_ */
