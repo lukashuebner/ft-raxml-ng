@@ -203,27 +203,47 @@ public:
     }
   };
 
-  static long fail_every_nth_call;
-  static int max_failures_to_simulate;
+  static void startSimulatingFailures(long fail_every_nth_call, int max_failures_to_simulate) {
+      _fail_every_nth_call = fail_every_nth_call;
+      _max_failures_to_simulate = max_failures_to_simulate;
+      _failure_simulation_enabled = true;
+      _call_counter = 0;
+      _failure_counter = 0;
+  }
+
 private:
 #ifdef _RAXML_MPI
   // Has the MPI subsystem been finalized?
   static bool mpi_finalized();
   // Converts a MPI error code and respective error class into human readable format
   static std::string mpi_err_to_string(int errorCode);
-  static int failureCounter;
+  static bool _failure_simulation_enabled;
+  static long _fail_every_nth_call;
+  static int _max_failures_to_simulate;
+  static int _call_counter;
+  static int _failure_counter;
   static bool _simulate_failure;
-  static int iFail_at_call;
-  static int simulated_failures;
   static float _randomized_failure_prob;
+  static int _fail_call_counter;
   
   template<class F>
-  static void fault_tolerant_mpi_call(F mpi_call)
+  static void fault_tolerant_mpi_call(F mpi_call, bool skip_counting = true)
   {
     assert(_comm != MPI_COMM_NULL);
   
     #ifdef RAXML_FAILURES_SIMULATE
-  
+
+    if (_failure_simulation_enabled && !skip_counting) {
+        _call_counter++;
+        assert(_fail_every_nth_call > 0);
+        assert(_max_failures_to_simulate > 0);
+        assert(_call_counter > 0);
+        if (_call_counter == _fail_every_nth_call && _failure_counter < _max_failures_to_simulate) {
+            _call_counter = 0;
+            _simulate_failure = true;
+        }
+    }
+
     if (_simulate_failure) {
       size_t oldRankId = rank_id();
       MPI_Comm newComm;
@@ -232,7 +252,7 @@ private:
       LOG_DEBUG << "Simulating failure" << std::endl;
   
       _simulate_failure = false; // Do this *before* calling detect_num_nodes, which uses ft-MPI calls 
-      simulated_failures++;
+      _failure_counter++;
       MPI_Comm_split(_comm, 0, (rank_id() + 1) % num_ranks(), &newComm);
       MPI_Comm_free(&_comm);
       _comm = newComm;
@@ -249,13 +269,6 @@ private:
     }
    
     #else
-  
-    #ifdef RAXML_FAILURES_SIMULATE
-    failureCounter++;
-    if (failureCounter == iFail_at_call) { // Simulate my failure when my time has come
-      raise(SIGKILL);
-    }
-    #endif
     
     int rc, ec;
     rc = mpi_call();

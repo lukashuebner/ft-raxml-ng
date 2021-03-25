@@ -8,6 +8,8 @@
 #include <sstream>
 #include <stdexcept>
 
+#define NDEBUG
+
 extern "C" {
 //#include <libpll/pll.h>
 #include <libpll/pllmod_common.h>

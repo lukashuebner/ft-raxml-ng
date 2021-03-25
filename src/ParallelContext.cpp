@@ -69,20 +69,21 @@ ThreadGroup& ParallelContext::thread_group(size_t id)
 }
 
 #ifdef _RAXML_MPI
-int ParallelContext::failureCounter = 0;
-bool ParallelContext::_simulate_failure = false;
+long ParallelContext::_fail_every_nth_call = 0;
+int ParallelContext::_max_failures_to_simulate = numeric_limits<int>::max();
+int ParallelContext::_call_counter = 0;
+int ParallelContext::_failure_counter = 0;
+bool ParallelContext::_failure_simulation_enabled = false;
 float ParallelContext::_randomized_failure_prob = 0;
-int ParallelContext::iFail_at_call = -1;
-long ParallelContext::fail_every_nth_call = 0;
-int ParallelContext::max_failures_to_simulate = numeric_limits<int>::max();
-int ParallelContext::simulated_failures = 0;
+bool ParallelContext::_simulate_failure = false;
+int ParallelContext::_fail_call_counter = 0;
 
 void ParallelContext::fail(size_t rankId, int on_nth_call, bool reset) {
   // ParallelContext::log("FailureCounter: " + to_string(failureCounter));
   // Everyone uses the same counter, this prevent another rank killing himself after the rank ids have been reassigned
-  failureCounter++;
+  _fail_call_counter++;
   //log("this is failure " + to_string(failureCounter) + " I will fail on " + to_string(iFail_at_call));
-  if (on_nth_call < 0 || failureCounter == on_nth_call) {
+  if (on_nth_call < 0 || _fail_call_counter == on_nth_call) {
     #ifdef RAXML_FAILURES_SIMULATE
     _simulate_failure = true;
     RAXML_UNUSED(rankId);
@@ -92,7 +93,7 @@ void ParallelContext::fail(size_t rankId, int on_nth_call, bool reset) {
     }
     #endif
     if (reset) {
-      failureCounter = 0;
+      _fail_call_counter = 0;
     }
   }
 }
@@ -559,7 +560,7 @@ void ParallelContext::parallel_reduce(double * data, size_t size, int op)
 #if 1
       fault_tolerant_mpi_call([&]() {
           return MPI_Allreduce(MPI_IN_PLACE, data, size, MPI_DOUBLE, reduce_op, _comm);
-      });
+      }, false);
 #else
       // not sure if MPI_IN_PLACE will work in all cases...
       MPI_Allreduce(data, _parallel_buf.data(), size, MPI_DOUBLE, reduce_op, _comm);

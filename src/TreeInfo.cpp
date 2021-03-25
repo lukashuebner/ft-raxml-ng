@@ -215,6 +215,8 @@ TreeInfo::~TreeInfo ()
 
 void TreeInfo::assert_lh_eq(double lh1, double lh2) {
   assert(abs(lh1 - lh2) < -lh1 * RAXML_LOGLH_TOLERANCE);
+  RAXML_UNUSED(lh1);
+  RAXML_UNUSED(lh2);
 }
 
 void TreeInfo::assert_lh_improvement(double old_lh, double new_lh, const std::string& where)
