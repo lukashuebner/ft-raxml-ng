@@ -78,6 +78,7 @@ static struct option long_options[] =
   {"workers",            required_argument, 0, 0 },  /*  54 */
   {"fail-every",         required_argument, 0, 0 },  /*  55 */
   {"max-failures",       required_argument, 0, 0 },  /*  56 */
+  {"inv-checkpointing-frequency",   required_argument, 0, 0 },  /*  57 */
 
   { 0, 0, 0, 0 }
 };
@@ -295,6 +296,9 @@ void CommandLineParser::parse_options(int argc, char** argv, Options &opts)
 
   /* simulate a maximum of n failures; defult: maxint */
   opts.max_failures = numeric_limits<int>::max();
+
+  /* take every checkpoint */
+  opts.inv_checkpointing_frequency = 1;
 
   /* use all available cores per default */
 #if !defined(_RAXML_PTHREADS)
@@ -877,6 +881,10 @@ void CommandLineParser::parse_options(int argc, char** argv, Options &opts)
 
       case 56: /* fail a maximum of n times */
         opts.max_failures = atol(optarg);
+        break;
+    
+      case 57: /* checkpointing frequency */
+        opts.inv_checkpointing_frequency = atol(optarg);
         break;
 
       default:

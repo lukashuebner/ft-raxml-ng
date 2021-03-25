@@ -33,6 +33,8 @@ TreeInfo::TreeInfo (const Options &opts, const Tree& tree, const PartitionedMSA&
 }
 
 shared_ptr<ProfilerRegister> TreeInfo::_profiler_register = nullptr;
+TreeInfo* TreeInfo::_tree_info = nullptr;
+
 void TreeInfo::init_profiler() {
   _profiler_register = ProfilerRegister::getInstance();
   assert(_profiler_register != nullptr);
@@ -48,6 +50,12 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
   _brlen_opt_method = opts.brlen_opt_method;
   _check_lh_impr = opts.safety_checks.isset(SafetyCheck::model_lh_impr);
   _partition_contributions.resize(parted_msa.part_count());
+  _inv_checkpointing_frequency = opts.inv_checkpointing_frequency;
+  _tree_info = this;
+  _tree_needs_checkpointing = _models_need_checkpointing = false;
+  _checkpoint_counter = 0;
+  assert(_tree_info != nullptr);
+  assert(_inv_checkpointing_frequency >= 1);
 
   // TODO Has this to be updated when the site assignment changes? --> Assume not
   _pll_treeinfo = pllmod_treeinfo_create(pll_utree_graph_clone(&tree.pll_utree_root()),
@@ -66,10 +74,10 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
   partition_reinit_info = make_shared<partition_reinit_info_t>(opts, parted_msa, tip_msa_idmap, site_weights);
 
   // Enable profiling for tree updates
+  // also, higjack this function to implement an adjustable checkpointing frequency
   pllmod_treeinfo_update_recovery_tree_set_benchmarked([](pllmod_treeinfo_t * treeinfo) {
-    _profiler_register->profileFunction([&treeinfo]() {
-      pllmod_treeinfo_update_recovery_tree(treeinfo);
-    }, "UpdateTree");
+      RAXML_UNUSED(treeinfo);
+      _tree_info->mini_checkpoint(false, true);
   });
 }
 
@@ -390,7 +398,7 @@ void TreeInfo::update_to_new_assignment(bool rebalance) {
 //    return;
 //  }
 //
-//  double worked_for = _profiler_register->worked_for_ms();
+//  double worked_for = _profiler_regis100Gter->worked_for_ms();
 //  ParallelContext::parallel_reduce(&worked_for, sizeof(worked_for), PLLMOD_COMMON_REDUCE_MAX);
 //  if (force || worked_for > 10000) {
 //    update_to_new_assignment(true);
@@ -403,15 +411,27 @@ void TreeInfo::print_tree() {
 }
 
 void TreeInfo::mini_checkpoint(bool save_models, bool save_tree) {
-  if (save_models) {
-    _profiler_register->profileFunction([this]() {
-      CheckpointManager::update_models(*this);
-    }, "UpdateModels");
+  _checkpoint_counter++;
+  _tree_needs_checkpointing |= save_tree;
+  _models_need_checkpointing |= save_models;
+
+  if (_checkpoint_counter == _inv_checkpointing_frequency) {
+    if (_models_need_checkpointing) {
+        _profiler_register->profileFunction([this]() {
+        CheckpointManager::update_models(*this);
+        }, "UpdateModels");
+        _models_need_checkpointing = false;
+    }
+    // This operation is local and therefore cannot fail
+    if (_tree_needs_checkpointing) {
+        _profiler_register->profileFunction([this]() {
+        pllmod_treeinfo_update_recovery_tree(_pll_treeinfo);
+        }, "UpdateTree");
+        _tree_needs_checkpointing = false;
+    }
+    _checkpoint_counter = 0;
   }
-  // This operation is local and therefore cannot fail
-  if (save_tree) {
-    pllmod_treeinfo_update_recovery_tree_benchmarked(_pll_treeinfo);
-  }
+  assert(_checkpoint_counter < _inv_checkpointing_frequency);
 }
 
 size_t failureCount = 0;

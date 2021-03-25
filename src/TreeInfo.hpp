@@ -76,7 +76,12 @@ private:
   double _brlen_max;
   bool _check_lh_impr;
   doubleVector _partition_contributions;
+  long _inv_checkpointing_frequency;
+  bool _tree_needs_checkpointing;
+  bool _models_need_checkpointing;
+  int _checkpoint_counter; 
   static std::shared_ptr<ProfilerRegister> _profiler_register;
+  static TreeInfo* _tree_info;
   struct __partition_reinit_info_t {
     __partition_reinit_info_t(const Options &opts,
                               const PartitionedMSA& parted_msa,

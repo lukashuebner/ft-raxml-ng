@@ -91,6 +91,9 @@ public:
   /* For simulating failures */
   long fail_every;
   int max_failures;
+  
+  /* Adjustable checkpointing frequency */
+  long inv_checkpointing_frequency;
 
   /* I/O */
   std::string tree_file;
