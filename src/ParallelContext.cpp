@@ -316,6 +316,7 @@ void ParallelContext::detect_num_nodes()
     /* send callback -> work rank: send host name to master */
     auto worker_cb = [name,len](void * buf, size_t buf_size) -> int
         {
+          RAXML_UNUSED(buf_size);
           assert((size_t) len < buf_size);
           memcpy(buf, name, (len+1) * sizeof(char));
           return len;

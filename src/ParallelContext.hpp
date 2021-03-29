@@ -14,6 +14,8 @@
 #include "io/BinaryStream.hpp"
 #include "log.hpp"
 
+#define UNUSED(expr) (void)(expr)
+
 #ifdef _RAXML_MPI
 #include <mpi.h>
 #ifndef RAXML_FAILURES_SIMULATE
@@ -246,6 +248,7 @@ private:
 
     if (_simulate_failure) {
       size_t oldRankId = rank_id();
+      UNUSED(oldRankId);
       MPI_Comm newComm;
       (void)(mpi_call);
   
@@ -335,8 +338,8 @@ private:
 // Some assertions communicate over the network (for example to compute the loglh)
 // They may not handle failures correctly and should be disabled when simulating
 // failures.
-#if defined(RAXML_FAILURES_SIMULATE) && !defined (NDEBUG)
-//#define NON_FAILURE_TOLERANT_ASSERTS
+#if defined(RAXML_FAILURES_SIMULATE) && !defined(NDEBUG)
+#define NON_FAILURE_TOLERANT_ASSERTS
 #endif
 
 #endif /* RAXML_PARALLELCONTEXT_HPP_ */

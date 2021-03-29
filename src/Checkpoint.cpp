@@ -316,6 +316,7 @@ void CheckpointManager::update_models(const TreeInfo& treeinfo) {
     // Deserialize all models received from one rank.
     auto deserialize = [&modelsToSend](void * buf, size_t buf_size)
       {
+        RAXML_UNUSED(modelsToSend);
         BinaryStream bs((char*) buf, buf_size);
         auto model_count = bs.get<size_t>();
         assert(model_count > 0);

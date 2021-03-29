@@ -70,8 +70,16 @@ void TreeInfo::init(const Options &opts, const Tree& tree, const PartitionedMSA&
                                          ParallelContext::parallel_reduce_cb);
   }
 
-  init_partitions(opts, tree, parted_msa, tip_msa_idmap, part_assign, site_weights);
-  partition_reinit_info = make_shared<partition_reinit_info_t>(opts, parted_msa, tip_msa_idmap, site_weights);
+  init_partitions(opts, tree, parted_msa, tip_msa_idmap, part_assign,
+                  site_weights);
+  assert(_profiler_register);
+  _profiler_register->profileFunction(
+      [&]() {
+        partition_reinit_info = make_shared<partition_reinit_info_t>(
+            opts, parted_msa, tip_msa_idmap, site_weights);
+      },
+    "StoreReinitInfo"
+  );
 
   // Enable profiling for tree updates
   // also, higjack this function to implement an adjustable checkpointing frequency
