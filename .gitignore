@@ -43,3 +43,12 @@ release/
 # sbatch and data files
 *.sbatch
 *.phy
+
+# clangd files
+.clangd
+
+# Ignore the .clang-format file, as it's not applied to the whole project to keep in line
+# with the formating of the main repo.
+.clang-format
+
+compile_commands.json
