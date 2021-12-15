@@ -89,6 +89,18 @@ if(MPI_LINK_FLAGS)
                           LINK_FLAGS "${MPI_LINK_FLAGS}")
 endif()
 
+# Link ReStore
+# TODO Remove
+set(ReStore_BACKWARD_ENABLED Off)
+set(ReStore_BUILD_TESTS Off)
+set(ReStore_BUILD_BENCHMARKS Off)
+set(ReStore_BUILD_EXAMPLES Off)
+set(ReStore_USE_FTMPI OFF)
+set(ReStore_SIMULATE_FAILURES ON)
+ 
+add_subdirectory(../libs/ReStore ../libs/ReStore/bin)
+target_link_libraries(raxml_module ReStore)
+
 if(RAXML_BINARY_NAME)
   set_target_properties(raxml_module PROPERTIES OUTPUT_NAME ${RAXML_BINARY_NAME})	
 else()

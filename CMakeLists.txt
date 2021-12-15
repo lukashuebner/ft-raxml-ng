@@ -9,7 +9,7 @@ set(BUILD_AS_LIBRARY OFF CACHE BOOL "Build RAxML-NG as shared library (instead o
 set(PLLMOD_DEBUG OFF CACHE BOOL "Debug pll-modules (tons of console output!)")
 
 set (USE_PTHREADS ON CACHE BOOL "Enable multi-threading support (PTHREADS)")
-set (USE_MPI OFF CACHE BOOL "Enable MPI support")
+set (USE_MPI ON CACHE BOOL "Enable MPI support")
 set (USE_VCF OFF)
 
 # set both following options to OFF to build a portable binary 
@@ -139,7 +139,7 @@ if(ENABLE_MPI)
   find_package(MPI)
   if(MPI_CXX_FOUND)
     # set( ENV{OMPI_CXX}            "clang++" PARENT_SCOPE )
-    set(CMAKE_CXX_COMPILER "${MPI_CXX_COMPILER}")
+    #set(CMAKE_CXX_COMPILER "${MPI_CXX_COMPILER}")
     include_directories(${MPI_CXX_INCLUDE_PATH})
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MPI_CXX_COMPILER_FLAGS} -D_RAXML_MPI")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MPI_CXX_LINK_FLAGS}")
