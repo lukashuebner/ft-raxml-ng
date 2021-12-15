@@ -1,16 +1,16 @@
-#include "ParallelContext.hpp"
+#include <signal.h>
+#include <cassert>
+#include <iostream>
 #include <memory>
 
-#include "Options.hpp"
-
 #ifdef _RAXML_MPI
+#include <mpi.h>
 #include <mpi-ext.h>
 #include "Profiler.hpp"
 #endif
 
-#include <signal.h>
-#include <cassert>
-#include <iostream>
+#include "ParallelContext.hpp"
+#include "Options.hpp"
 
 // TODO Remove, for testing with failure schedule only
 #include <iostream>
@@ -678,7 +678,7 @@ void ParallelContext::parallel_reduce_cb(void * context, double * data, size_t s
   if (_randomized_failure_prob > 0) {
     uint32_t r = 0;
     const uint32_t GRANULARITY = 1000000;
-    static_assert(GRANULARITY < RAND_MAX);
+    assert(GRANULARITY < RAND_MAX);
     r = rand() % GRANULARITY;
     _simulate_failure = r < GRANULARITY * _randomized_failure_prob;
     MPI_Bcast(&_simulate_failure, 1, MPI_CXX_BOOL, 0, _comm);

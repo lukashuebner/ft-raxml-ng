@@ -213,7 +213,7 @@ uint64_t FractionalProfiler::FractionalHistogram::numEvents() const {
     return accumulate(bins->begin(), bins->end(), 0);
 }
 
-const shared_ptr<vector<uint64_t>> FractionalProfiler::FractionalHistogram::data() const {
+shared_ptr<vector<uint64_t>> FractionalProfiler::FractionalHistogram::data() const {
     assert(bins != nullptr);
     return bins;
 }

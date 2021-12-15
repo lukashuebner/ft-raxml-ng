@@ -30,6 +30,8 @@ target_link_libraries (raxml_test_module ${GTEST_BOTH_LIBRARIES} -pthread)
 
 target_link_libraries (raxml_test_module ${MPI_CXX_LIBRARIES})
 
+target_link_libraries (raxml_test_module ReStore::ReStore)
+
 if(MPI_COMPILE_FLAGS)
   set_target_properties(raxml_test_module PROPERTIES
   COMPILE_FLAGS "${MPI_COMPILE_FLAGS}")

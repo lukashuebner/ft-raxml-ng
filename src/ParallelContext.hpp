@@ -73,6 +73,7 @@ public:
   static size_t ranks_per_node() { return _num_ranks / _num_nodes; }
   static size_t threads_per_group() { return num_procs() / _num_groups; }
   static size_t ranks_per_group() { return _num_ranks / _num_groups; }
+  static MPI_Comm get_comm() { return _comm; }
 
   static void parallel_reduce_cb(void * context, double * data, size_t size, int op);
   static void thread_reduce(double * data, size_t size, int op);
@@ -248,10 +249,8 @@ private:
 // Some assertions communicate over the network (for example to compute the loglh)
 // They may not handle failures correctly and should be disabled when simulating
 // failures.
-#ifdef RAXML_SIMULATE_FAILURES
-#ifndef NDEBUG
+#if defined(RAXML_SIMULATE_FAILURES) && !defined(NDEBUG)
 #define NON_FAILURE_TOLERANT_ASSERTS
-#endif
 #endif
 
 #endif /* RAXML_PARALLELCONTEXT_HPP_ */

@@ -1,6 +1,12 @@
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <functional>
+#include <memory>
+#include <vector>
+#include <string>
+
+#include <mpi.h>
 
 using namespace std;
 
@@ -16,7 +22,7 @@ class FractionalProfiler {
                 void event(float number);
                 uint64_t& operator[](size_t idx);
                 const uint64_t& operator[](size_t idx) const;
-                const shared_ptr<vector<uint64_t>> data() const;
+                shared_ptr<vector<uint64_t>> data() const;
                 operator std::string();
                 uint64_t numEvents() const;
                 static const uint16_t numBins = 201;
@@ -24,7 +30,7 @@ class FractionalProfiler {
         };
 
     private:
-        string name;
+        std::string name;
         bool running = false;
         bool savedOrDiscarded = true;
         bool invalid = false;

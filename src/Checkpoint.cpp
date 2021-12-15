@@ -190,7 +190,7 @@ bool CheckpointManager::_models_initialized = false;
 ModelMap CheckpointManager::_working_models;
 ModelMap CheckpointManager::_tmp_models;
 
-// The models have to be initalized once from instance.parted_msa.models(), as assing(model, treeinfo_partiton)
+// The models have to be initalized once from instance.parted_msa.models(), as assign(model, treeinfo_partition)
 // won't copy over everything (e.g. rate heterogeneity).
 void CheckpointManager::init_models(const ModelCRefMap& models) {
   // Do not assert that the models were not initialized before, as this may happen if we
