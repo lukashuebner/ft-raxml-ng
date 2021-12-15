@@ -4,3 +4,6 @@
 [submodule "libs/terraphast"]
 	path = libs/terraphast
 	url = https://github.com/amkozlov/terraphast-one
+[submodule "libs/ReStore"]
+	path = libs/ReStore
+	url = git@github.com:ReStoreCpp/ReStore.git
