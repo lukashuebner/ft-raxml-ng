@@ -222,7 +222,7 @@ void ParallelContext::update_world_parameters() {
   _rank_id = (size_t)rankId;
   _local_rank_id = _num_ranks > _num_groups ? _rank_id : 0;
   detect_num_nodes();
-  log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
+  // log("I see a world with " + to_string(_num_ranks) + " ranks on " + to_string(_num_nodes) + " nodes in which I have the id " + to_string(_rank_id));
 }
 
 #ifdef _RAXML_MPI
@@ -254,8 +254,6 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
     assert(num_ranks() == 1 || oldRankId != rank_id());
     assert(num_ranks() != 0 || oldRankId == rank_id());
 
-    log("Rank failure at:");
-    // print_stacktrace();
     throw RankFailureException();
   } else {
     mpi_call();
@@ -444,9 +442,9 @@ void ParallelContext::detect_num_nodes()
 #endif
 }
 
-void ParallelContext::saveProfilingData() {
-  ProfilerRegister::getInstance()->saveProfilingData(master(), _num_ranks, &(ParallelContext::rankToProcessorName), _comm);
-}
+// void ParallelContext::saveProfilingData() {
+//   ProfilerRegister::getInstance()->saveProfilingData(master(), _num_ranks, &(ParallelContext::rankToProcessorName), _comm);
+// }
 
 void ParallelContext::resize_buffers(size_t reduce_buf_size, size_t worker_buf_size)
 {
