@@ -320,7 +320,7 @@ double TreeInfo::optimize_branches(double lh_epsilon, double brlen_smooth_factor
   {
     int max_iters = brlen_smooth_factor * RAXML_BRLEN_SMOOTHINGS;
     new_loglh = fault_tolerant_call("branch length opt.",
-      [this, lh_epsilon, brlen_smooth_factor, max_iters]() -> double {
+      [this, lh_epsilon, max_iters]() -> double {
         return -1 * pllmod_algo_opt_brlen_treeinfo(_pll_treeinfo,
                                                    _brlen_min,
                                                    _brlen_max,
