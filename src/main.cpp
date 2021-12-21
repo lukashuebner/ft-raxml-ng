@@ -44,6 +44,7 @@
 #include "autotune/ResourceEstimator.hpp"
 #include "ICScoreCalculator.hpp"
 #include "topology/RFDistCalculator.hpp"
+#include "ReStoreMSAWrapper.hpp"
 
 #ifdef _RAXML_TERRAPHAST
 #include "terraces/TerraceWrapper.hpp"
@@ -90,6 +91,9 @@ struct RaxmlInstance
   // All the IDs of the rank which are the master of at least one model and therefore
   // need to broadcast model parameters.
   shared_ptr<IDVector> ranks_which_are_part_masters; 
+
+  // Recovery of the MSA after a rank failure.
+  std::optional<ReStoreMSAWrapper> msa_restore;
 
   // bootstopping convergence test, only autoMRE is supported for now
   unique_ptr<BootstopCheckMRE> bootstop_checker;
@@ -839,7 +843,12 @@ void load_msa(RaxmlInstance& instance)
   LOG_INFO_TS << "Reading alignment from file: " << opts.msa_file << endl;
 
   /* load MSA */
-  auto msa = msa_load_from_file(opts.msa_file, opts.msa_format);
+  MSA msa;
+  auto profiler_register = ProfilerRegister::getInstance();
+  // Load the MSA data for this rank from disk.
+  profiler_register->profileFunction([&]() {
+    msa = msa_load_from_file(opts.msa_file, opts.msa_format);
+  }, "loadMsaFromFile");
 
   LOG_INFO_TS << "Loaded alignment with " << msa.size() << " taxa and " <<
       msa.num_sites() << " sites" << endl;
@@ -2247,25 +2256,49 @@ void init_parallel_buffers(const RaxmlInstance& instance)
 }
 
 void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
-  // TODO: Fault-tolerance in case of coarse-grained parallelization
-  // doesn't work with coarse-grained parallelization!
+  //! Fault-tolerance doesn't work with coarse-grained parallelization!
   assert(ParallelContext::num_groups() == 1);
 
-  // collect PartitionAssignments from all worker threads
-  PartitionAssignment local_part_ranges;
-  assert(instance.opts.num_threads == 1);
-  for (size_t i = 0; i < instance.opts.num_threads; ++i)
-  {
-    auto thread_ranges = instance.proc_part_assign.at(ParallelContext::local_proc_id() + i);
-    for (auto& r: thread_ranges) {
-      local_part_ranges.assign_sites(r.part_id, r.start, r.length);
-    }
+  // Get the profiler instance
+  auto profiler_register = ProfilerRegister::getInstance();
+
+  static bool rbaLoad = true;
+  if (rbaLoad) {
+    LOG_DEBUG << "load_assignment_data_for_this_rank(): RBA load" << std::endl;
+    // Load the MSA data for this rank from disk.
+    profiler_register->profileFunction([&]() {
+
+    // We are working in MPs only mode, therefore, each rank has exactly one thread.
+    // collect PartitionAssignments from all worker threads
+    // partitionAssignment local_part_ranges;
+    // assert(instance.opts.num_threads == 1);
+    // for (size_t i = 0; i < instance.opts.num_threads; ++i)
+    // {
+    //     auto thread_ranges = instance.proc_part_assign.at(ParallelContext::local_proc_id() + i);
+    //     for (auto& r: thread_ranges) {
+    //     local_part_ranges.assign_sites(r.part_id, r.start, r.length);
+    //     }
+    // }
+
+    // Load the data from the RBA file.
+    RBAStream bs(instance.opts.binary_msa_file());
+      auto& local_part_ranges = instance.proc_part_assign.at(ParallelContext::rank_id());
+      bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
+    }, "LoadAssignmentDataRBALoad");
+
+    // Next time, load the data from the ReStore.
+    rbaLoad = false;
+  } else {
+    LOG_DEBUG << "load_assignment_data_for_this_rank(): ReStore-ing" << std::endl;
+    // Load the MSA data from the ReStore.
+    profiler_register->profileFunction([&]() {
+        // Tell the ReStore about the new (fixed) communictor.
+        instance.msa_restore->updateComm(ParallelContext::get_comm());
+    
+        // Load MSA data from ReStore 
+        instance.msa_restore->restoreMSA(*instance.parted_msa, instance.proc_part_assign);
+    }, "ReStoreAssignmentData");
   }
-
-  LOG_DEBUG << "Loading MSA segments from RBA file " << instance.opts.msa_file << "..." << endl;
-
-  RBAStream bs(instance.opts.binary_msa_file());
-  bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
 }
 
 shared_ptr<vector<double>> compute_work_by_partition(RaxmlInstance& instance) {
@@ -2369,6 +2402,13 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
     CheckpointManager::set_model_masters(instance.ranks_which_are_part_masters);
   };
 
+  // Al of this ReStore code does only make sense if we do not load the whole MSA data on each rank.
+  // TODO: It would be preferable to automatically decide if we want to use ReStore or not depending
+  // on if RBA partial loading is enabled.
+  if (!opts.use_rba_partload) {
+      throw std::runtime_error("RBA partial loading is disabled. Please enable it.");
+  }
+
   auto redo_assignment_cb = [&instance, &compute_part_masters] (bool rebalance = false) {
     auto profiler_register = ProfilerRegister::getInstance();
 
@@ -2387,16 +2427,9 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
       compute_part_masters();
     }, "ComputePartMasters");
 
-    if (firstLoad) {
-      profiler_register->profileFunction([&]() {
-        load_assignment_data_for_this_rank(instance);
-      }, "LoadAssignmentDataFirstLoad");
-      firstLoad= false;
-    } else {
-      profiler_register->profileFunction([&]() {
-        load_assignment_data_for_this_rank(instance);
-      }, "LoadAssignmentData");
-    }
+    // The decicion whether to load the MSA data from disk or from ReStore is made inside
+    // the load_assignment_data_for_this_rank() function. It also handles profiling of both cases.
+    load_assignment_data_for_this_rank(instance);
 
     return instance.proc_part_assign.at(ParallelContext::local_proc_id());
   };
@@ -2718,12 +2751,32 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
   /* run load balancing algorithm */
   instance.load_balancer_cb = build_load_balancer(instance);
   balance_load(instance, bind(instance.load_balancer_cb, nullptr));
+  assert(instance.proc_part_assign.size() > 0);
+  assert(instance.proc_part_assign.size() == ParallelContext::num_ranks());
+  for (auto&& assignment: instance.proc_part_assign) {
+    assert(assignment.length() > 0);
+    assert(assignment.begin() != assignment.end());
+  }
 
   /* lazy-load part of the alignment assigned to the current MPI rank */
   if (opts.msa_format == FileFormat::binary && opts.use_rba_partload)
   {
+    LOG_ERROR << "!!! Unexpected loading of binary alignment." << std::endl;
+    abort();
     load_assignment_data_for_this_rank(instance);
   }
+
+  // Commit this rank's part of the MSA to the ReStore.
+  auto profiler_register = ProfilerRegister::getInstance();
+  const uint16_t REPLICATION_LEVEL = 2;
+  for (size_t partitionId = 0; partitionId < instance.parted_msa->part_count(); ++partitionId) {
+    LOG_DEBUG << "Size of partition " << partitionId << ": " << instance.parted_msa->part_info(partitionId).msa().size() << std::endl;
+  }
+  profiler_register->profileFunction([&]() {
+    // Commit data into ReStore
+    instance.msa_restore.emplace(
+        *instance.parted_msa, MPI_COMM_WORLD, REPLICATION_LEVEL, instance.proc_part_assign);
+  }, "CommitMSAIntoRestore");
 
   // TEMP WORKAROUND: here we reset random seed once again to make sure that BS replicates
   // are not affected by the number of ML search starting trees that has been generated before
