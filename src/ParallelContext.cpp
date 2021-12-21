@@ -15,6 +15,8 @@
 // TODO Remove, for testing with failure schedule only
 #include <iostream>
 
+const int SIMULATED_FAILURE_RANK_SHIFT = 48;
+
 using namespace std;
 
 // This is just a default size; the buffer will be resized later according to #part and #threads
@@ -246,7 +248,7 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 
     _simulate_failure = false; // Do this *before* calling detect_num_nodes, which uses ft-MPI calls 
     simulated_failures++;
-    MPI_Comm_split(_comm, 0, (rank_id() + 1) % num_ranks(), &newComm);
+    MPI_Comm_split(_comm, 0, (rank_id() + SIMUALTED_FAILURE_RANK_SHIFT) % num_ranks(), &newComm);
     MPI_Comm_free(&_comm);
     _comm = newComm;
 
