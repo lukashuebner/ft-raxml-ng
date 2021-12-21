@@ -27,11 +27,16 @@ Logging& Logging::instance()
 
 LogStream& Logging::logstream(LogLevel level, bool worker)
 {
-  if ((ParallelContext::master() || (ParallelContext::group_master() && worker))
-      && level <= _log_level)
+  if (level == LogLevel::debug) { 
+    _full_stream << "[" << ParallelContext::rank_id() << "] ";
     return _full_stream;
-  else
-    return _empty_stream;
+  } else {
+    if ((ParallelContext::master() || (ParallelContext::group_master() && worker))
+        && level <= _log_level)
+        return _full_stream;
+    else
+        return _empty_stream;
+  }
 }
 
 void Logging::set_log_filename(const std::string& fname, ios_base::openmode mode)
