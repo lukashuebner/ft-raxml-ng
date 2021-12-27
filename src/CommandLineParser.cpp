@@ -78,6 +78,7 @@ static struct option long_options[] =
   {"workers",            required_argument, 0, 0 },  /*  54 */
   {"fail-every",         required_argument, 0, 0 },  /*  55 */
   {"max-failures",       required_argument, 0, 0 },  /*  56 */
+  {"rank-shift-on-failure", required_argument, 0, 0 },  /*  57 */
 
   { 0, 0, 0, 0 }
 };
@@ -293,8 +294,11 @@ void CommandLineParser::parse_options(int argc, char** argv, Options &opts)
   /* fail every n-th call, default: never */
   opts.fail_every = 0;
 
-  /* simulate a maximum of n failures; defult: maxint */
+  /* simulate a maximum of n failures; default: maxint */
   opts.max_failures = numeric_limits<int>::max();
+
+  /* shift ranks by this amount when simulating a failure */
+  opts.rank_shift_on_failure = -1;
 
   /* use all available cores per default */
 #if !defined(_RAXML_PTHREADS)
@@ -417,7 +421,7 @@ void CommandLineParser::parse_options(int argc, char** argv, Options &opts)
         opts.optimize_brlen = !optarg || (strcasecmp(optarg, "off") != 0);
         break;
 
-      case 11:  /* prob-msa = use probabilitic MSA */
+      case 11:  /* prob-msa = use probabilistic MSA */
         if (!optarg || (strcasecmp(optarg, "off") != 0))
         {
           opts.use_prob_msa = true;
@@ -877,6 +881,10 @@ void CommandLineParser::parse_options(int argc, char** argv, Options &opts)
 
       case 56: /* fail a maximum of n times */
         opts.max_failures = atol(optarg);
+        break;
+
+    case 57: /* how large should the rank shift be when simulating a failure */
+        opts.rank_shift_on_failure = atol(optarg);
         break;
 
       default:

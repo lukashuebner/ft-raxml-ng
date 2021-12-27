@@ -127,6 +127,7 @@ public:
   // For testing purposes; the rank with id <rank> will fail when the fail function is called the n-th time on this rank
   static void fail(size_t rank, int on_nth_call = 1, bool reset = false);
   static void set_failure_prob(float probability);
+  static void set_rank_shift_on_failure(int rank_shift);
   #endif
 
   // Will sleep until a debugger attaches and changes a local variable using for example

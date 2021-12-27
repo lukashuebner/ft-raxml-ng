@@ -2856,6 +2856,15 @@ int internal_main(int argc, char** argv, void* comm)
     return clean_exit(EXIT_FAILURE);
   }
 
+  // If we are simulating failures, ensure, that the user thought about the number of ranks to shift
+  // when simualting a failure.
+  if (opts.max_failures > 0 && opts.fail_every > 0) {
+    if (opts.rank_shift_on_failure < 0
+        || opts.rank_shift_on_failure >= static_cast<int>(ParallelContext::num_ranks())) {
+        LOG_ERROR << "--rank-shift-on-failure must be >= 0 and < the number of ranks." << endl;
+    }
+    ParallelContext::set_rank_shift_on_failure(opts.rank_shift_on_failure);
+  }
   /* handle trivial commands first */
   switch (opts.command)
   {

@@ -15,9 +15,9 @@
 // TODO Remove, for testing with failure schedule only
 #include <iostream>
 
-const int SIMULATED_FAILURE_RANK_SHIFT = 48;
 
 using namespace std;
+int SIMULATED_FAILURE_RANK_SHIFT = -1;
 
 // This is just a default size; the buffer will be resized later according to #part and #threads
 #define PARALLEL_BUF_SIZE (128 * 1024)
@@ -34,6 +34,13 @@ std::vector<char> ParallelContext::_parallel_buf;
 std::unordered_map<ThreadIDType, ParallelContext> ParallelContext::_thread_ctx_map;
 MutexType ParallelContext::mtx;
 vector<string> ParallelContext::_rankToProcessorName = vector<string>();
+
+void ParallelContext::set_rank_shift_on_failure(int rank_shift) {
+    assert(rank_shift >= 0);
+    assert(rank_shift < static_cast<int>(ParallelContext::num_ranks()));
+    LOG_DEBUG << "Rank shift on failure set to " << rank_shift << endl;
+    SIMULATED_FAILURE_RANK_SHIFT = rank_shift;
+}
 
 string ParallelContext::rankToProcessorName(size_t rank) {
   assert(master());
@@ -248,13 +255,18 @@ void ParallelContext::fault_tolerant_mpi_call(const function<int()> mpi_call)
 
     _simulate_failure = false; // Do this *before* calling detect_num_nodes, which uses ft-MPI calls 
     simulated_failures++;
+    assert(SIMULATED_FAILURE_RANK_SHIFT >= 0);
+    assert(SIMULATED_FAILURE_RANK_SHIFT < static_cast<int>(ParallelContext::num_ranks()));
     MPI_Comm_split(_comm, 0, (rank_id() + SIMULATED_FAILURE_RANK_SHIFT) % num_ranks(), &newComm);
     MPI_Comm_free(&_comm);
     _comm = newComm;
 
     update_world_parameters();
-    assert(num_ranks() == 1 || oldRankId != rank_id());
-    assert(num_ranks() != 0 || oldRankId == rank_id());
+    if (num_ranks() == 1 || SIMULATED_FAILURE_RANK_SHIFT == 0) {
+        assert(oldRankId == rank_id());
+    } else {
+        assert(oldRankId != rank_id());
+    }
 
     throw RankFailureException();
   } else {
