@@ -2865,6 +2865,10 @@ int internal_main(int argc, char** argv, void* comm)
     }
     ParallelContext::set_rank_shift_on_failure(opts.rank_shift_on_failure);
   }
+
+  // Create a profiler instance.
+  auto profiler_register = ProfilerRegister::createInstance("profiler.csv");
+
   /* handle trivial commands first */
   switch (opts.command)
   {
@@ -2986,12 +2990,6 @@ int internal_main(int argc, char** argv, void* comm)
         ParallelContext::init_pthreads(opts, std::bind(thread_main,
                                                        std::ref(instance),
                                                        std::ref(cm)));
-
-        auto profiler_register = ProfilerRegister::createInstance("recovery_timings.csv");
-        profiler_register->registerProfiler("recalculate-assignment");
-        profiler_register->registerProfiler("reload-sites");
-        profiler_register->registerProfiler("restore-models");
-        profiler_register->registerProfiler("mini-checkpoints");
 
         while (42) {
           try {

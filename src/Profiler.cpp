@@ -338,7 +338,7 @@ shared_ptr<ProfilerRegister> ProfilerRegister::singleton = nullptr;
 
 shared_ptr<ProfilerRegister> ProfilerRegister::getInstance() {
     if (singleton == nullptr) {
-        throw runtime_error("No instance has been created yet.");
+        throw runtime_error("No profiler instance has been created yet.");
     }
     return singleton;
 }
