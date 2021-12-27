@@ -193,9 +193,15 @@ void init_part_info(RaxmlInstance& instance)
 
     LOG_INFO_TS << "Loading binary alignment from file: " << opts.msa_file << endl;
 
-    auto rba_elem = opts.use_rba_partload ? RBAStream::RBAElement::metadata : RBAStream::RBAElement::all;
-    RBAStream bs(opts.msa_file);
-    bs >> RBAStream::RBAOutput(parted_msa, rba_elem, nullptr);
+    LOG_DEBUG << "Loading the metadata form the RBA file" << endl;
+    assert(opts.use_rba_partload);
+    auto profiler_register = ProfilerRegister::getInstance();
+    // Load the MSA data for this rank from disk.
+    profiler_register->profileFunction([&]() {
+        auto rba_elem = opts.use_rba_partload ? RBAStream::RBAElement::metadata : RBAStream::RBAElement::all;
+        RBAStream bs(opts.msa_file);
+        bs >> RBAStream::RBAOutput(parted_msa, rba_elem, nullptr);
+    }, "LoadMetadataFromRBA");
 
     // binary probMSAs are not supported yet
     instance.opts.use_prob_msa = false;
@@ -843,12 +849,13 @@ void load_msa(RaxmlInstance& instance)
   LOG_INFO_TS << "Reading alignment from file: " << opts.msa_file << endl;
 
   /* load MSA */
+  LOG_WARN << "!!!!! Loading from the MSA file; don't do this when running the benchmarks. !!!!!" << std::endl;
   MSA msa;
   auto profiler_register = ProfilerRegister::getInstance();
   // Load the MSA data for this rank from disk.
   profiler_register->profileFunction([&]() {
     msa = msa_load_from_file(opts.msa_file, opts.msa_format);
-  }, "loadMsaFromFile");
+  }, "LoadAllFromMSA");
 
   LOG_INFO_TS << "Loaded alignment with " << msa.size() << " taxa and " <<
       msa.num_sites() << " sites" << endl;
@@ -2262,34 +2269,33 @@ void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
   // Get the profiler instance
   auto profiler_register = ProfilerRegister::getInstance();
 
-  static bool rbaLoad = true;
-  if (rbaLoad) {
-    LOG_DEBUG << "load_assignment_data_for_this_rank(): RBA load" << std::endl;
-    // Load the MSA data for this rank from disk.
+  // On the first load (0), load from the RBA, which is hopefully uncached.
+  // On the second load (1), load from the hopefully cached RBA file.
+  // On the third load (2), load from the ReStore.
+  static uint8_t loadCounter = 0;
+  if (loadCounter == 0) {
+    LOG_INFO << "load_assignment_data_for_this_rank(): RBA first load" << std::endl;
     profiler_register->profileFunction([&]() {
-
-    // We are working in MPs only mode, therefore, each rank has exactly one thread.
-    // collect PartitionAssignments from all worker threads
-    // partitionAssignment local_part_ranges;
-    // assert(instance.opts.num_threads == 1);
-    // for (size_t i = 0; i < instance.opts.num_threads; ++i)
-    // {
-    //     auto thread_ranges = instance.proc_part_assign.at(ParallelContext::local_proc_id() + i);
-    //     for (auto& r: thread_ranges) {
-    //     local_part_ranges.assign_sites(r.part_id, r.start, r.length);
-    //     }
-    // }
-
-    // Load the data from the RBA file.
-    RBAStream bs(instance.opts.binary_msa_file());
+      RBAStream bs(instance.opts.msa_file);
       auto& local_part_ranges = instance.proc_part_assign.at(ParallelContext::rank_id());
       bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
-    }, "LoadAssignmentDataRBALoad");
+    }, "LoadMSAFromRBAUncached");
+
+    // Next time, load the data from the the (cached) RBA file.
+    loadCounter++;
+  } else if (loadCounter == 1) {
+    LOG_INFO << "load_assignment_data_for_this_rank(): RBA second load" << std::endl;
+    profiler_register->profileFunction([&]() {
+      RBAStream bs(instance.opts.msa_file);
+      auto& local_part_ranges = instance.proc_part_assign.at(ParallelContext::rank_id());
+      bs >> RBAStream::RBAOutput(*instance.parted_msa, RBAStream::RBAElement::seqdata, &local_part_ranges);
+    }, "LoadMSAFromRBACached");
 
     // Next time, load the data from the ReStore.
-    rbaLoad = false;
+    loadCounter++;
   } else {
-    LOG_DEBUG << "load_assignment_data_for_this_rank(): ReStore-ing" << std::endl;
+    assert(loadCounter == 2);
+    LOG_INFO << "load_assignment_data_for_this_rank(): ReStore-ing" << std::endl;
     // Load the MSA data from the ReStore.
     profiler_register->profileFunction([&]() {
         // Tell the ReStore about the new (fixed) communictor.
@@ -2297,7 +2303,8 @@ void load_assignment_data_for_this_rank(RaxmlInstance& instance) {
     
         // Load MSA data from ReStore 
         instance.msa_restore->restoreMSA(*instance.parted_msa, instance.proc_part_assign);
-    }, "ReStoreAssignmentData");
+    }, "LoadMSAFromReStore");
+    loadCounter++; // There should be not more than 3 loads.
   }
 }
 
@@ -2431,7 +2438,7 @@ void thread_infer_ml(RaxmlInstance& instance, CheckpointManager& cm)
     // the load_assignment_data_for_this_rank() function. It also handles profiling of both cases.
     load_assignment_data_for_this_rank(instance);
 
-    return instance.proc_part_assign.at(ParallelContext::local_proc_id());
+    return instance.proc_part_assign.at(ParallelContext::rank_id());
   };
 
   auto ckp_tree_index = instance.run_phase == RaxmlRunPhase::mlsearch ? checkp.tree_index : 0;
@@ -2761,8 +2768,6 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
   /* lazy-load part of the alignment assigned to the current MPI rank */
   if (opts.msa_format == FileFormat::binary && opts.use_rba_partload)
   {
-    LOG_ERROR << "!!! Unexpected loading of binary alignment." << std::endl;
-    abort();
     load_assignment_data_for_this_rank(instance);
   }
 
@@ -2776,7 +2781,7 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
     // Commit data into ReStore
     instance.msa_restore.emplace(
         *instance.parted_msa, MPI_COMM_WORLD, REPLICATION_LEVEL, instance.proc_part_assign);
-  }, "CommitMSAIntoRestore");
+  }, "SaveToReStore");
 
   // TEMP WORKAROUND: here we reset random seed once again to make sure that BS replicates
   // are not affected by the number of ML search starting trees that has been generated before

@@ -91,6 +91,7 @@ public:
   /* For simulating failures */
   long fail_every;
   int max_failures;
+  int rank_shift_on_failure;
 
   /* I/O */
   std::string tree_file;

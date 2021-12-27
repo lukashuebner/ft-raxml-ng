@@ -20,8 +20,8 @@ public:
     struct BlockProxy {
         // The information about the current partition is contained in the MSA as each partition has it's own MSA
         // object.
-        const MSA* msa;
-        uint64_t   siteId;
+        const MSA* msaOfThisPattern;
+        uint64_t   localPatternId;
     };
 
     ReStoreMSAWrapper(
@@ -29,109 +29,84 @@ public:
         const PartitionAssignmentList& partitionToProcessorAssignments) {
         // Parse the partition to processor assignment to get information like the number of ReStore blocks needed etc.
         // Following that, we can create the ReStore object which will hold the MSA data.
-        // LOG_DEBUG << "Parsing local processor assignment" << std::endl;
         assert(partitionToProcessorAssignments.size() == ParallelContext::num_ranks());
         for (auto&& assignment: partitionToProcessorAssignments) {
             assert(assignment.length() > 0);
             assert(assignment.begin() != assignment.end());
         }
-        // std::cout << "#### Original MSA at rank " << ParallelContext::rank_id() << std::endl;
-        // for (auto&& partition: parted_msa.part_list()) {
-        //     std::string weights;
-        //     for (auto weight: partition.msa().weights()) {
-        //         weights += std::to_string(weight) + " ";
-        //     }
-        //     std::cout << partition.msa().weights().size() << " weights: " << weights << std::endl;
-        //     for (auto&& taxon: partition.msa()) {
-        //         std::cout << taxon.substr() << std::endl;
-        //     }
-        // }
 
         _localPartitionAssignment =
             _parsePartitionToProcessorAssignment(partitionToProcessorAssignments, parted_msa.part_count());
-        // Each block consists of one character per taxon plus th weight of this site.
+        // Each block consists of one character per taxon plus th weight of this pattern.
         _restore.emplace(
             comm, replicationLevel, ReStore::OffsetMode::constant, parted_msa.taxon_count() + sizeof(WeightType));
 
-        // Initialize the mapper between ReStore block IDs and <partitions id, site id>
-        // LOG_DEBUG << "initialize ReStore block id mapper" << std::endl;
+        // Initialize the mapper between ReStore block IDs and <partitions id, pattern id>
         _restoreBlockMapper.emplace(&_localPartitionAssignment, _partitionIdOffset);
-        // LOG_DEBUG << "done initialize ReStore block id mapper" << std::endl;
 
-        // Function to serialize a single site across all taxa as one ReStore block. This sites weight will also be
-        // serialized.
+        // Function to serialize a single pattern across all taxa as one ReStore block. This pattern's weight will also
+        // be serialized.
         auto serializeBlock = [](const BlockProxy& blockProxy, ReStore::SerializedBlockStoreStream& stream) {
-            const auto& msa     = blockProxy.msa;
-            const auto& siteId  = blockProxy.siteId;
-            const auto& numTaxa = msa->size();
+            const auto& msa       = blockProxy.msaOfThisPattern;
+            const auto& patternId = blockProxy.localPatternId;
+            const auto& numTaxa   = msa->size();
 
             for (auto taxon = 0u; taxon < numTaxa; ++taxon) {
-                // LOG_DEBUG << "Serializing taxon " << taxon << std::endl;
-                stream << (*msa)[taxon][siteId];
+                assert((*msa)[taxon][patternId] != '\0');
+                stream << (*msa)[taxon][patternId];
             }
-            stream << (*msa).weights()[siteId];
+            assert(patternId < msa->weights().size());
+            assert(msa->weights()[patternId] != 0);
+            stream << msa->weights()[patternId];
         };
-        // LOG_DEBUG << "Done defining block serializer" << std::endl;
 
-        // Enumerate all Sites in all partitions.
+        // Enumerate all patterns in all partitions.
         assert(_localPartitionAssignment.length() > 0);
         assert(_localPartitionAssignment.begin() != _localPartitionAssignment.end());
-        auto       currentPartitionRange = _localPartitionAssignment.begin();
-        auto       currentSite           = currentPartitionRange->start;
-        BlockProxy currentBlockProxy;
+        auto       partitionRange = _localPartitionAssignment.begin();
+        auto       partitionId    = partitionRange->part_id;
+        auto       partitionEnd   = partitionRange->start + partitionRange->length;
+        auto       patternId      = partitionRange->start;
+        const MSA* msa            = &(parted_msa.part_info(partitionId).msa());
+        BlockProxy blockProxy;
 
-        // LOG_DEBUG << "defining site enumerator" << std::endl;
-        auto nextBlock = [this, &currentSite, &currentPartitionRange, &parted_msa,
-                          endPartitionRange = _localPartitionAssignment.end(),
-                          &currentBlockProxy]() -> std::optional<ReStore::NextBlock<BlockProxy>> {
-            auto partitionId         = currentPartitionRange->part_id;
-            auto currentPartitionEnd = currentPartitionRange->start + currentPartitionRange->length;
-
-            // If we are past the last site of this partition range, advance to the
-            // next partition range.
-            if (currentSite == currentPartitionEnd) {
-                currentPartitionRange++;
-                if (currentPartitionRange == endPartitionRange) {
+        auto nextBlock = [this, &patternId, &partitionRange, &parted_msa, &msa, &partitionEnd, &partitionId,
+                          localPartitionAssignmentEnd = _localPartitionAssignment.end(),
+                          &blockProxy]() -> std::optional<ReStore::NextBlock<BlockProxy>> {
+            // If we are past the last pattern of this partition range, advance to the next partition range.
+            if (patternId == partitionEnd) {
+                partitionRange++;
+                if (partitionRange == localPartitionAssignmentEnd) {
                     return std::nullopt;
                 } else {
-                    partitionId         = currentPartitionRange->part_id;
-                    currentPartitionEnd = currentPartitionRange->length;
-                    currentSite         = currentPartitionRange->start;
+                    partitionId  = partitionRange->part_id;
+                    partitionEnd = partitionRange->start + partitionRange->length;
+                    patternId    = partitionRange->start;
+                    msa          = &(parted_msa.part_info(partitionId).msa());
                 }
             }
-            assert(currentPartitionRange->length > 0);
-            assert(currentSite >= currentPartitionRange->start);
-            assert(currentSite < currentPartitionRange->start + currentPartitionRange->length);
+            assert(partitionRange->length > 0);
+            assert(patternId >= partitionRange->start);
+            assert(patternId < partitionEnd);
 
-            // Compute the ReStore block id for this site.
+            // Compute the ReStore block id for this pattern.
             const auto restoreBlockId =
-                _restoreBlockMapper->partitionAndGlobalSiteId2restoreBlockId(partitionId, currentSite);
-            // LOG_DEBUG << "Partition: " << partitionId << " (sites " << currentPartitionRange->start << "-"
-            //           << currentPartitionEnd << ") global site: " << currentSite << " ReStore ID: " << restoreBlockId
-            //           << std::endl;
+                _restoreBlockMapper->partitionAndGlobalPatternId2restoreBlockId(partitionId, patternId);
 
             // Assume that the partition IDs between the partition range assignments
             // and the partitions in the Partitioned MSA match up.
-            // LOG_DEBUG << "num partitions in MSA: " << parted_msa.part_count()
-            //           << "; num partitions in assignment: " << _localPartitionAssignment.num_parts()
-            //           << "; num partitions global: " << _numPartitionsGlobal << std::endl;
             assert(_numPartitionsGlobal == parted_msa.part_count());
-            assert(currentPartitionRange->part_id < parted_msa.part_count());
+            assert(partitionRange->part_id < parted_msa.part_count());
 
-            // Get the MSA for this partition.
-            const MSA& msa = parted_msa.part_info(partitionId).msa();
-
-            // Assemble return information information, advance to next site and return.
-            currentBlockProxy.msa    = &msa;
-            currentBlockProxy.siteId = currentSite;
-            ReStore::NextBlock<BlockProxy> nextBlock(restoreBlockId, currentBlockProxy);
-            currentSite++;
+            // Assemble return information information, advance to next pattern and return.
+            blockProxy.msaOfThisPattern = msa;
+            blockProxy.localPatternId   = _restoreBlockMapper->global2localPatternId(partitionId, patternId);
+            ReStore::NextBlock<BlockProxy> nextBlock(restoreBlockId, blockProxy);
+            patternId++;
             return nextBlock;
         };
 
-        // LOG_DEBUG << "Start submitting blocks" << std::endl;
         _restore->submitBlocks(serializeBlock, nextBlock, _numReStoreBlocks);
-        // LOG_DEBUG << "Done submitting blocks" << std::endl;
     };
 
     // Delete the copy and move constructors and assignment operators. Copying an MSA is not a good idea, as it uses a
@@ -164,129 +139,127 @@ public:
         using BlockRequest = std::pair<BlockRange, ReStoreMPI::current_rank_t>;
         std::vector<BlockRequest> blockRequests;
 
-        auto numRanks = asserting_cast<ReStoreMPI::current_rank_t>(ParallelContext::num_ranks());
+        auto numRanks           = asserting_cast<ReStoreMPI::current_rank_t>(ParallelContext::num_ranks());
+        auto numBlocksRequested = 0u;
         for (ReStoreMPI::current_rank_t destRank = 0; destRank < numRanks; destRank++) {
             const auto& partitionAssignment = partitionToProcessorAssignments.at(destRank);
             for (auto& partition: partitionAssignment) {
-                auto restoreBlockIdOfFirstSite =
-                    _restoreBlockMapper->partitionAndGlobalSiteId2restoreBlockId(partition.part_id, partition.start);
+                auto restoreBlockIdOfFirstPattern =
+                    _restoreBlockMapper->partitionAndGlobalPatternId2restoreBlockId(partition.part_id, partition.start);
 
-                blockRequests.emplace_back(BlockRange(restoreBlockIdOfFirstSite, partition.length), destRank);
-                // LOG_DEBUG << "Requesting blocks " << restoreBlockIdOfFirstSite << "-"
-                //           << restoreBlockIdOfFirstSite + partition.length - 1 << " to rank "
-                //           << destRank << std::endl;
+                blockRequests.emplace_back(BlockRange(restoreBlockIdOfFirstPattern, partition.length), destRank);
+
+                if (destRank == static_cast<int>(ParallelContext::rank_id())) {
+                    numBlocksRequested += partition.length;
+                }
             }
         }
 
         // Define the callback function ReStore uses to hand us the received block in serialized form. This function
-        // deserialized the incoming blocks and places the contained sites into a local store for the sequences. In a
-        // second step, we then populate the MSA object. This has to be done, as writing single sites to a partitioned
-        // MSA is not trivial and not currently supported by the PartitionedMSA object.
-        // TODO How to get the number of taxa to reserve enough space beforehand?
-        // TODO Does this work?
-        auto numTaxa = parted_msa.part_list().at(0).msa().size();
+        // deserialized the incoming blocks and places the contained patterns into a local store for the sequences. In a
+        // second step, we then populate the MSA object. This has to be done, as writing single patterns to a
+        // partitioned MSA is not trivial and not currently supported by the PartitionedMSA object.
+        auto numTaxa = parted_msa.taxon_count();
         assert(numTaxa > 0);
 
-        // Caluclate the number of local sites per partition and reserve space for the received sequences.
-        std::vector<size_t>                         numLocalSitesPerPartition(_numPartitionsGlobal, 0);
+        // Caluclate the number of local patterns per partition and reserve space for the received sequences.
+        std::vector<size_t>                         numLocalPatternsPerPartition(_numPartitionsGlobal, 0);
         std::vector<std::vector<std::vector<char>>> sequences(_numPartitionsGlobal); // By partition ID and taxon
         std::vector<WeightVector>                   weights(_numPartitionsGlobal);   // But partition ID
-        assert(numLocalSitesPerPartition.size() == _numPartitionsGlobal);
+        assert(numLocalPatternsPerPartition.size() == _numPartitionsGlobal);
         assert(sequences.size() == _numPartitionsGlobal);
         assert(weights.size() == sequences.size());
 
         assert(_localPartitionAssignment.length() > 0);
+        auto sizeOfSequenceBuffer = 0u;
         for (auto& partition: _localPartitionAssignment) {
-            // Number of sites per partition
+            // Number of patterns per partition
             auto partitionId     = partition.part_id;
             auto partitionLength = partition.length;
             assert(partitionLength > 0);
-            assert(numLocalSitesPerPartition.at(partitionId) == 0);
-            // LOG_DEBUG << "Partition " << partitionId << " has " << partitionLength << " local sites" << std::endl;
-            numLocalSitesPerPartition[partitionId] = partitionLength;
+            assert(numLocalPatternsPerPartition[partitionId] == 0);
+            numLocalPatternsPerPartition[partitionId] = partitionLength;
+            assert(numLocalPatternsPerPartition[partitionId] > 0);
 
             // Reserve space for the received sequences. Actually resize() instead of reserve(), as we are doing
             // assignment during the block deserialization.
             sequences[partitionId].resize(numTaxa);
-            weights[partitionId].resize(numLocalSitesPerPartition[partitionId]);
+            weights[partitionId].resize(numLocalPatternsPerPartition[partitionId]);
+            sizeOfSequenceBuffer += numLocalPatternsPerPartition[partitionId];
             for (auto taxon = 0u; taxon < numTaxa; ++taxon) {
-                sequences[partitionId][taxon].resize(numLocalSitesPerPartition[partitionId]);
+                sequences[partitionId][taxon].resize(numLocalPatternsPerPartition[partitionId]);
             }
         }
 
-        auto blockDeserializer = [this, numTaxa, &weights,
+        auto numBlocksReceived = 0u;
+        auto blockDeserializer = [this, numTaxa, &weights, &numBlocksReceived,
                                   &sequences](const void* data, size_t lengthInBytes, ReStore::block_id_t blockId) {
-            // LOG_DEBUG << "Received block " << blockId << " at rank " << ParallelContext::rank_id() << std::endl;
+            numBlocksReceived++;
             assert(_restoreBlockMapper);
-            auto [partitionId, localSiteId] = _restoreBlockMapper->restoreBlockId2PartitionAndLocalSiteId(blockId);
-            // LOG_DEBUG << "Block belongs to partition " << partitionId << " and local site " << localSiteId <<
-            // std::endl;
+            auto [partitionId, localPatternId] =
+                _restoreBlockMapper->restoreBlockId2PartitionAndLocalPatternId(blockId);
 
             // Copy the characters to their respective taxon.
             assert(lengthInBytes == numTaxa * sizeof(char) + sizeof(WeightType));
             for (auto taxon = 0u; taxon < numTaxa; ++taxon) {
-                // LOG_DEBUG << "Copying site " << localSiteId << " of taxon " << taxon << " to partition " <<
-                // partitionId
-                //           << ": " << *(reinterpret_cast<const char*>(data) + taxon) << std::endl;
                 assert(sequences.size() > partitionId);
                 assert(taxon < sequences[partitionId].size());
                 assert(sequences[partitionId][taxon].size() > 0);
-                assert(localSiteId < sequences[partitionId][taxon].size());
-                sequences[partitionId][taxon][localSiteId] = *(reinterpret_cast<const char*>(data) + taxon);
+                assert(localPatternId < sequences[partitionId][taxon].size());
+                assert(sequences[partitionId][taxon][localPatternId] == '\0'); // No pattern should be written twice.
+                sequences[partitionId][taxon][localPatternId] = *(reinterpret_cast<const char*>(data) + taxon);
+                assert(sequences[partitionId][taxon][localPatternId] != '\0'); // That's not a valid IUPAC code.
             }
 
-            // Copy over the sites' weight.
+            // Copy over the pattern's weight.
             // I want to do the pointer arithmetic on a char pointer.
             const WeightType* weightPtr =
                 reinterpret_cast<const WeightType*>(reinterpret_cast<const char*>(data) + numTaxa);
-            weights[partitionId][localSiteId] = *weightPtr;
+            assert(*weightPtr > 0);
+            assert(localPatternId < weights[partitionId].size());
+            weights[partitionId][localPatternId] = *weightPtr;
         };
 
-        // for (auto& blockRequest: blockRequests) {
-        //     auto& [blockRange, destRank] = blockRequest;
-        //     LOG_DEBUG << "Requesting blocks " << blockRange.first << "-" << blockRange.first + blockRange.second - 1
-        //               << " to rank " << destRank << std::endl;
-        // }
-        // Fetch the MSA sites from the ReStore into the sequences store.
+        // Fetch the MSA patterns from the ReStore into the sequences store.
         _restore->pushBlocksCurrentRankIds(blockRequests, blockDeserializer);
+
+        assert(numBlocksReceived == numBlocksRequested);
+        assert(numBlocksReceived == sizeOfSequenceBuffer);
 
         // Populate the MSA object with the sequences.
         for (size_t partitionId = 0; partitionId < _numPartitionsGlobal; partitionId++) {
-            auto      partitionAssignment = _localPartitionAssignment.find(partitionId);
+            // Get the local partition assignment for this partition. If this rank did not get any patterns of this
+            // partition, we do not need to populate our MSA with sequences either and can therefore skip it.
+            auto partitionAssignment = _localPartitionAssignment.find(partitionId);
+            if (partitionAssignment == _localPartitionAssignment.end()) {
+                continue;
+            }
+
+            // Build the RangeList object describing our assignment of this partition.
             RangeList rangeList;
             rangeList.emplace_back(partitionAssignment->start, partitionAssignment->length);
             auto& msa = parted_msa.part_list().at(partitionId).msa() = MSA(rangeList);
-            // LOG_DEBUG << "Populating MSA for partition " << partitionId << " with "
-            //           << numLocalSitesPerPartition[partitionId] << " sites and " << sequences[partitionId].size()
-            //           << " taxa." << std::endl;
+
+            // Append the sequences (one for each taxon) of our assignment of this partition to the corresponding MSA
+            // object.
             for (auto& sequenceOfTaxon: sequences[partitionId]) {
                 sequenceOfTaxon.push_back('\0');
-                // LOG_DEBUG << "Adding sequence of length " << sequenceOfTaxon.size() - 1 << " to partition "
-                //           << partitionId << std::endl;
-                // LOG_DEBUG << std::string(sequenceOfTaxon.data()) << std::endl;
-                msa.append(std::string(sequenceOfTaxon.data()));
+                std::string sequenceOfTaxon_str(sequenceOfTaxon.begin(), sequenceOfTaxon.end());
+                assert(sequenceOfTaxon_str.length() == sequenceOfTaxon.size());
+                msa.append(sequenceOfTaxon_str);
             }
+            assert(partitionId < weights.size());
             msa.weights(std::move(weights[partitionId]));
         }
-        // std::cout << "#### Restored MSA at rank " << ParallelContext::rank_id() << std::endl;
-        // for (auto&& partition: parted_msa.part_list()) {
-        //     std::string weights;
-        //     for (auto weight: partition.msa().weights()) {
-        //         weights += std::to_string(weight) + " ";
-        //     }
-        //     std::cout << partition.msa().weights().size() << " weights: " << weights << std::endl;
-        //     for (auto&& taxon: partition.msa()) {
-        //         std::cout << taxon.substr() << std::endl;
-        //     }
-        // }
     }
 
 private:
-    // This class encapsulates the functionality used to map partition ids + site ids to ReStore ids and vice versa. It
-    // also maps global to local site ids and vice versa. Global site ids are a site's position in the partition as in
-    // the MSA. Local site ids are the position of this site in this ranks MSA object.
+    // This class encapsulates the functionality used to map partition ids + pattern ids to ReStore ids and vice versa.
+    // It also maps global to local pattern ids and vice versa. Global pattern ids are a pattern's position in the
+    // partition as in the MSA. Local pattern ids are the position of this pattern in this ranks MSA object.
     class ReStoreBlockMapper {
-        // The global site id is this sites unique index across all sites in the whole MSA instead of only on this rank.
+        // The global pattern id is this pattern's unique index across all patterns in the whole MSA instead of only on
+        // this rank.
     public:
         ReStoreBlockMapper(
             const PartitionAssignment* thisRanksPartitionAssignment, const std::vector<size_t>& partitionIdOffsets)
@@ -297,7 +270,7 @@ private:
             _partitionAssignment = thisRanksPartitionAssignment;
         }
 
-        inline std::pair<uint64_t, uint64_t> restoreBlockId2PartitionAndGlobalSiteId(uint64_t restoreBlockId) {
+        inline std::pair<uint64_t, uint64_t> restoreBlockId2PartitionAndGlobalPatternId(uint64_t restoreBlockId) {
             // Determine to which partition this block id belongs.
             auto partitionId =
                 std::distance(
@@ -305,43 +278,39 @@ private:
                     std::upper_bound(_partitionIdOffsets.begin(), _partitionIdOffsets.end(), restoreBlockId))
                 - 1;
 
-            auto globalSiteIdInPartition = restoreBlockId - _partitionIdOffsets[partitionId];
+            auto globalPatternIdInPartition = restoreBlockId - _partitionIdOffsets[partitionId];
 
-            return std::pair(partitionId, globalSiteIdInPartition);
+            return std::pair(partitionId, globalPatternIdInPartition);
         }
 
-        inline uint64_t partitionAndGlobalSiteId2restoreBlockId(uint64_t partitionId, uint64_t globalSiteId) {
+        inline uint64_t partitionAndGlobalPatternId2restoreBlockId(uint64_t partitionId, uint64_t globalPatternId) {
             assert(partitionId < _partitionIdOffsets.size());
-            return _partitionIdOffsets[partitionId] + globalSiteId;
+            return _partitionIdOffsets[partitionId] + globalPatternId;
         }
 
-        inline uint64_t partitionAndLocalSiteId2restoreBlockId(uint64_t partitionId, uint64_t localSiteId) {
+        inline uint64_t partitionAndLocalPatternId2restoreBlockId(uint64_t partitionId, uint64_t localPatternId) {
             assert(partitionId < _partitionIdOffsets.size());
-            return _partitionIdOffsets[partitionId] + local2globalSiteId(partitionId, localSiteId);
+            return _partitionIdOffsets[partitionId] + local2globalPatternId(partitionId, localPatternId);
         }
 
-        inline std::pair<uint64_t, uint64_t> restoreBlockId2PartitionAndLocalSiteId(uint64_t restoreBlockId) {
-            auto result   = restoreBlockId2PartitionAndGlobalSiteId(restoreBlockId);
-            result.second = global2localSiteId(result.first, result.second);
+        inline std::pair<uint64_t, uint64_t> restoreBlockId2PartitionAndLocalPatternId(uint64_t restoreBlockId) {
+            auto result   = restoreBlockId2PartitionAndGlobalPatternId(restoreBlockId);
+            result.second = global2localPatternId(result.first, result.second);
             return result;
         }
 
-        inline uint64_t local2globalSiteId(uint64_t partitionId, uint64_t localSiteId) {
+        inline uint64_t local2globalPatternId(uint64_t partitionId, uint64_t localPatternId) {
             assert(_partitionAssignment->length() > 0);
             auto partition = _partitionAssignment->find(partitionId);
             assert(partition != _partitionAssignment->end());
-            return partition->start + localSiteId;
+            return partition->start + localPatternId;
         }
 
-        inline uint64_t global2localSiteId(uint64_t partitionId, uint64_t globalSiteId) {
+        inline uint64_t global2localPatternId(uint64_t partitionId, uint64_t globalPatternId) {
             assert(_partitionAssignment->length() > 0);
             auto partition = _partitionAssignment->find(partitionId);
-            // for (auto& partition: *_partitionAssignment) {
-            //     LOG_DEBUG << "My partition assignment: Partition " << partition.part_id << ": start at "
-            //               << partition.start << " with length " << partition.length << std::endl;
-            // }
             assert(partition != _partitionAssignment->end());
-            return globalSiteId - partition->start;
+            return globalPatternId - partition->start;
         }
 
     private:
@@ -358,10 +327,11 @@ private:
     uint64_t _numPartitionsGlobal;
     uint64_t _numPartitionsLocal; // on this rank
 
-    // The number of ReStore blocks. In the current implementation, this is the number of sites across all partitions.
+    // The number of ReStore blocks. In the current implementation, this is the number of patterns across all
+    // partitions.
     uint64_t _numReStoreBlocks;
 
-    // A sites (ReStore) block id is computed by its partition id offset plus it's position in the given partition.
+    // A pattern's (ReStore) block id is computed by its partition id offset plus it's position in the given partition.
     // _partIdOffset therefore stores the exclusive prefix sum of the partition sizes.
     std::vector<uint64_t> _partitionIdOffset;
 
@@ -381,10 +351,9 @@ private:
         _numPartitionsLocal  = 0;
         _numReStoreBlocks    = 0;
 
-        size_t numSites = 0;
+        size_t numPatterns = 0;
         _partitionIdOffset.resize(numPartitionsInMSA, 0);
         std::vector<size_t> partitionSizes(numPartitionsInMSA, 0);
-        // LOG_DEBUG << "There are " << numPartitionsInMSA << " partitions in the MSA." << std::endl;
 
         for (auto partAssignment: partitionToProcessorAssignments) {
             for (auto partRange: partAssignment) {
@@ -396,13 +365,12 @@ private:
                 // Assume, that the partition ids are consecutive.
                 _numPartitionsGlobal = std::max(_numPartitionsGlobal, partRange.part_id);
 
-                // Also count the number of sites to later infer the number of ReStore
+                // Also count the number of patterns to later infer the number of ReStore
                 // blocks. Assume, that there are no overlapping partitions.
-                numSites += partRange.length;
+                numPatterns += partRange.length;
             }
         }
         _numPartitionsGlobal++;
-        // LOG_DEBUG << "There are " << _numPartitionsGlobal << " global partitions." << std::endl;
         assert(_numPartitionsGlobal == _partitionIdOffset.size());
         assert(_numPartitionsGlobal == partitionSizes.size());
 
@@ -412,13 +380,8 @@ private:
         std::exclusive_scan(partitionSizes.begin(), partitionSizes.end(), _partitionIdOffset.begin(), 0);
         assert(_partitionIdOffset.size() == _numPartitionsGlobal);
 
-        // for (size_t partitionId = 0; partitionId < _numPartitionsGlobal; partitionId++) {
-        //     LOG_DEBUG << "Partition " << partitionId << ": start at " << _partitionIdOffset[partitionId]
-        //               << " with length " << partitionSizes[partitionId] << std::endl;
-        // }
-
-        // Currently, the number of ReStore blocks is equal to the number of sites across all partitions in the MSA.
-        _numReStoreBlocks = numSites;
+        // Currently, the number of ReStore blocks is equal to the number of patterns across all partitions in the MSA.
+        _numReStoreBlocks = numPatterns;
 
         const auto& localPartitionAssignment = partitionToProcessorAssignments[ParallelContext::rank_id()];
         _numPartitionsLocal                  = localPartitionAssignment.num_parts();
