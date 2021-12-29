@@ -30,10 +30,12 @@ public:
         // Parse the partition to processor assignment to get information like the number of ReStore blocks needed etc.
         // Following that, we can create the ReStore object which will hold the MSA data.
         assert(partitionToProcessorAssignments.size() == ParallelContext::num_ranks());
+#ifndef NDEBUG
         for (auto&& assignment: partitionToProcessorAssignments) {
             assert(assignment.length() > 0);
             assert(assignment.begin() != assignment.end());
         }
+#endif
 
         _localPartitionAssignment =
             _parsePartitionToProcessorAssignment(partitionToProcessorAssignments, parted_msa.part_count());
@@ -201,6 +203,7 @@ public:
 
             // Copy the characters to their respective taxon.
             assert(lengthInBytes == numTaxa * sizeof(char) + sizeof(WeightType));
+            UNUSED(lengthInBytes);
             for (auto taxon = 0u; taxon < numTaxa; ++taxon) {
                 assert(sequences.size() > partitionId);
                 assert(taxon < sequences[partitionId].size());

@@ -2760,10 +2760,12 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
   balance_load(instance, bind(instance.load_balancer_cb, nullptr));
   assert(instance.proc_part_assign.size() > 0);
   assert(instance.proc_part_assign.size() == ParallelContext::num_ranks());
+#ifndef NDEBUG
   for (auto&& assignment: instance.proc_part_assign) {
     assert(assignment.length() > 0);
     assert(assignment.begin() != assignment.end());
   }
+#endif
 
   /* lazy-load part of the alignment assigned to the current MPI rank */
   if (opts.msa_format == FileFormat::binary && opts.use_rba_partload)
