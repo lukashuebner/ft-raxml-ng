@@ -44,7 +44,7 @@ public:
             comm, replicationLevel, ReStore::OffsetMode::constant, parted_msa.taxon_count() + sizeof(WeightType));
 
         // Initialize the mapper between ReStore block IDs and <partitions id, pattern id>
-        _restoreBlockMapper.emplace(&_localPartitionAssignment, _partitionIdOffset);
+        _restoreBlockMapper.emplace(&_localPartitionAssignment, parted_msa.part_count(), _partitionIdOffset);
 
         // Function to serialize a single pattern across all taxa as one ReStore block. This pattern's weight will also
         // be serialized.
@@ -265,12 +265,20 @@ private:
         // this rank.
     public:
         ReStoreBlockMapper(
-            const PartitionAssignment* thisRanksPartitionAssignment, const std::vector<size_t>& partitionIdOffsets)
-            : _partitionAssignment(thisRanksPartitionAssignment),
-              _partitionIdOffsets(partitionIdOffsets) {}
+            const PartitionAssignment* thisRanksPartitionAssignment, size_t numPartitionsGlobal, const std::vector<size_t>& partitionIdOffsets)
+            : _partitionIdOffsets(partitionIdOffsets) {
+            _mapPartitionIdToLocalPartitionStart.resize(numPartitionsGlobal);
+            updateThisRanksPartitionAssignment(thisRanksPartitionAssignment);
+        }
 
         void updateThisRanksPartitionAssignment(const PartitionAssignment* thisRanksPartitionAssignment) {
-            _partitionAssignment = thisRanksPartitionAssignment;
+            for (auto& partitionStart: _mapPartitionIdToLocalPartitionStart) {
+                partitionStart = -1;
+            }
+            for (auto& partition: *thisRanksPartitionAssignment) {
+                assert(partition.part_id < _mapPartitionIdToLocalPartitionStart.size());
+                _mapPartitionIdToLocalPartitionStart[partition.part_id] = partition.start;
+            }
         }
 
         inline std::pair<uint64_t, uint64_t> restoreBlockId2PartitionAndGlobalPatternId(uint64_t restoreBlockId) {
@@ -303,22 +311,23 @@ private:
         }
 
         inline uint64_t local2globalPatternId(uint64_t partitionId, uint64_t localPatternId) {
-            assert(_partitionAssignment->length() > 0);
-            auto partition = _partitionAssignment->find(partitionId);
-            assert(partition != _partitionAssignment->end());
-            return partition->start + localPatternId;
+            assert(partitionId < _mapPartitionIdToLocalPartitionStart.size());
+            assert(_mapPartitionIdToLocalPartitionStart[partitionId] != -1);
+            const auto partitionStart = _mapPartitionIdToLocalPartitionStart[partitionId];
+            return partitionStart + localPatternId;
         }
 
         inline uint64_t global2localPatternId(uint64_t partitionId, uint64_t globalPatternId) {
-            assert(_partitionAssignment->length() > 0);
-            auto partition = _partitionAssignment->find(partitionId);
-            assert(partition != _partitionAssignment->end());
-            return globalPatternId - partition->start;
+            assert(partitionId < _mapPartitionIdToLocalPartitionStart.size());
+            assert(_mapPartitionIdToLocalPartitionStart[partitionId] != -1);
+            const auto partitionStart = _mapPartitionIdToLocalPartitionStart[partitionId];
+            return globalPatternId - partitionStart;
         }
 
     private:
-        const PartitionAssignment* _partitionAssignment; // Needs to be updated after rank failure or rebalancing.
+        // const PartitionAssignment* _partitionAssignment; // Needs to be updated after rank failure or rebalancing.
         const std::vector<size_t>& _partitionIdOffsets;
+        std::vector<int64_t>        _mapPartitionIdToLocalPartitionStart;
     };
 
     std::optional<ReStoreBlockMapper> _restoreBlockMapper;
