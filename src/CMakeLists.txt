@@ -97,6 +97,7 @@ set(ReStore_BUILD_BENCHMARKS Off)
 set(ReStore_BUILD_EXAMPLES Off)
 set(ReStore_USE_FTMPI OFF)
 set(ReStore_SIMULATE_FAILURES ON)
+set(ReStore_ID_RANDOMIZATION OFF)
  
 add_subdirectory(../libs/ReStore ../libs/ReStore/bin)
 target_link_libraries(raxml_module ReStore)

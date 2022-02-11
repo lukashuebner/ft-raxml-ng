@@ -2770,6 +2770,8 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
   /* lazy-load part of the alignment assigned to the current MPI rank */
   if (opts.msa_format == FileFormat::binary && opts.use_rba_partload)
   {
+    LOG_ERROR << "!!! Unexpected loading of binary alignment." << std::endl;
+    abort();
     load_assignment_data_for_this_rank(instance);
   }
 
