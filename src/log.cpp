@@ -27,7 +27,7 @@ Logging& Logging::instance()
 
 LogStream& Logging::logstream(LogLevel level, bool worker)
 {
-  if (level == LogLevel::debug) { 
+  if (level == LogLevel::debug && level <= _log_level) { 
     _full_stream << "[" << ParallelContext::rank_id() << "] ";
     return _full_stream;
   } else {

@@ -10,6 +10,7 @@ set(PLLMOD_DEBUG OFF CACHE BOOL "Debug pll-modules (tons of console output!)")
 
 set (USE_PTHREADS ON CACHE BOOL "Enable multi-threading support (PTHREADS)")
 set (USE_MPI ON CACHE BOOL "Enable MPI support")
+set (PROFILE_RESTORE_ONLY OFF CACHE BOOL "Restore profiling only (no likelihood computations).")
 set (USE_VCF OFF)
 
 # set both following options to OFF to build a portable binary 
@@ -134,6 +135,12 @@ set(RAXML_LOCALDEPS_DIR ${PROJECT_BINARY_DIR}/localdeps)
 add_subdirectory(${PROJECT_SOURCE_DIR}/libs)
 
 include_directories(${RAXML_LOCALDEPS_DIR}/include ${TERRACES_INCLUDE_DIR})
+
+if(PROFILE_RESTORE_ONLY)
+  message(STATUS "ReStore profiling mode, no likelihood computations.")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPROFILE_RESTORE_ONLY")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DPROFILE_RESTORE_ONLY")
+endif()
 
 if(ENABLE_MPI)
   find_package(MPI)

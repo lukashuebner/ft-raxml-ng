@@ -206,6 +206,7 @@ void init_part_info(RaxmlInstance& instance)
     // binary probMSAs are not supported yet
     instance.opts.use_prob_msa = false;
 
+#ifndef PROFILE_RESTORE_ONLY
     LOG_INFO_TS << "Alignment comprises " << parted_msa.taxon_count() << " taxa, " <<
         parted_msa.part_count() << " partitions and " <<
         parted_msa.total_length() << " patterns\n" << endl;
@@ -213,6 +214,7 @@ void init_part_info(RaxmlInstance& instance)
     LOG_INFO << parted_msa;
 
     LOG_INFO << endl;
+#endif
   }
   /* check if model is a file */
   else if (sysutil_file_exists(opts.model_file))
@@ -1952,6 +1954,11 @@ void print_ic_scores(const RaxmlInstance& instance, double loglh)
 
 void print_final_output(const RaxmlInstance& instance, const CheckpointFile& checkp)
 {
+#ifdef PROFILE_RESTORE_ONLY
+  LOG_INFO << "In ReStore profiling mode, not performing any likelihood computations." << std::endl;
+  return;
+#endif
+
   auto const& opts = instance.opts;
   const auto& parted_msa = *instance.parted_msa;
 
@@ -2770,8 +2777,8 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
   /* lazy-load part of the alignment assigned to the current MPI rank */
   if (opts.msa_format == FileFormat::binary && opts.use_rba_partload)
   {
-    LOG_ERROR << "!!! Unexpected loading of binary alignment." << std::endl;
-    abort();
+    // LOG_ERROR << "!!! Unexpected loading of binary alignment." << std::endl;
+    // abort();
     load_assignment_data_for_this_rank(instance);
   }
 
@@ -2781,11 +2788,35 @@ void master_main(RaxmlInstance& instance, CheckpointManager& cm)
   for (size_t partitionId = 0; partitionId < instance.parted_msa->part_count(); ++partitionId) {
     LOG_DEBUG << "Size of partition " << partitionId << ": " << instance.parted_msa->part_info(partitionId).msa().size() << std::endl;
   }
+
+  // Warm up the network by sending a message from each rank to each rank.
+  std::vector<MPI_Request> sendRequests(ParallelContext::num_ranks());
+  std::vector<MPI_Status> recvStatuses(ParallelContext::num_ranks());
+  int buf = 42;
+  for (uint64_t destRank = 0; destRank < ParallelContext::num_ranks(); ++destRank) {
+      MPI_Isend(&buf, 1, MPI_INT, static_cast<int>(destRank), 0, MPI_COMM_WORLD, &sendRequests[destRank]);
+  }
+  for (uint64_t srcRank = 0; srcRank < ParallelContext::num_ranks(); ++srcRank) {
+      MPI_Recv(&buf, 1, MPI_INT, static_cast<int>(srcRank), 0, MPI_COMM_WORLD, &recvStatuses[srcRank]);
+  }
+  ParallelContext::barrier();
+
   profiler_register->profileFunction([&]() {
     // Commit data into ReStore
     instance.msa_restore.emplace(
         *instance.parted_msa, MPI_COMM_WORLD, REPLICATION_LEVEL, instance.proc_part_assign);
   }, "SaveToReStore");
+
+  // Enable this for the most minimal run. We load the MSA data once from the RBA (hopefully uncached) and commit it to the ReStore
+  // (see directly above this). Then we load the MSA again from the RBA file (hopefully cached) and from the ReStore.
+  // Afterward, we immediately exit without performing any likelihood optimization etc.
+#ifdef PROFILE_RESTORE_ONLY
+  ParallelContext::barrier();
+  load_assignment_data_for_this_rank(instance); // Second load from RBA file.
+  ParallelContext::barrier();
+  load_assignment_data_for_this_rank(instance); // Load from ReStore
+  return;
+#endif
 
   // TEMP WORKAROUND: here we reset random seed once again to make sure that BS replicates
   // are not affected by the number of ML search starting trees that has been generated before
