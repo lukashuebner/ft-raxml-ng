@@ -138,23 +138,17 @@ public:
         // Build the block request data structure. It defines which ReStore blocks
         // need to be moved to which rank.
         using BlockRange   = std::pair<ReStore::block_id_t, size_t>;
-        using BlockRequest = std::pair<BlockRange, ReStoreMPI::current_rank_t>;
-        std::vector<BlockRequest> blockRequests;
+        std::vector<BlockRange> blockRequests;
 
-        auto numRanks           = asserting_cast<ReStoreMPI::current_rank_t>(ParallelContext::num_ranks());
         auto numBlocksRequested = 0u;
-        for (ReStoreMPI::current_rank_t destRank = 0; destRank < numRanks; destRank++) {
-            const auto& partitionAssignment = partitionToProcessorAssignments.at(destRank);
-            for (auto& partition: partitionAssignment) {
-                auto restoreBlockIdOfFirstPattern =
-                    _restoreBlockMapper->partitionAndGlobalPatternId2restoreBlockId(partition.part_id, partition.start);
+        const auto destRank = ParallelContext::rank_id();
+        const auto& partitionAssignment = partitionToProcessorAssignments.at(destRank);
+        for (auto& partition: partitionAssignment) {
+            auto restoreBlockIdOfFirstPattern =
+                _restoreBlockMapper->partitionAndGlobalPatternId2restoreBlockId(partition.part_id, partition.start);
 
-                blockRequests.emplace_back(BlockRange(restoreBlockIdOfFirstPattern, partition.length), destRank);
-
-                if (destRank == static_cast<int>(ParallelContext::rank_id())) {
-                    numBlocksRequested += partition.length;
-                }
-            }
+            blockRequests.emplace_back(restoreBlockIdOfFirstPattern, partition.length);
+            numBlocksRequested += partition.length;
         }
 
         // Define the callback function ReStore uses to hand us the received block in serialized form. This function
@@ -224,7 +218,7 @@ public:
         };
 
         // Fetch the MSA patterns from the ReStore into the sequences store.
-        _restore->pushBlocksCurrentRankIds(blockRequests, blockDeserializer);
+        _restore->pullBlocks(blockRequests, blockDeserializer);
 
         assert(numBlocksReceived == numBlocksRequested);
         assert(numBlocksReceived == sizeOfSequenceBuffer);
