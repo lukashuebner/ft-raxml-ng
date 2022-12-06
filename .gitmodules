@@ -4,3 +4,6 @@
 [submodule "libs/terraphast"]
 	path = libs/terraphast
 	url = https://github.com/amkozlov/terraphast-one
+[submodule "libs/kamping"]
+	path = libs/kamping
+	url = git@github.com:kamping-site/kamping.git
