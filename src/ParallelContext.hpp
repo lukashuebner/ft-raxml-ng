@@ -83,17 +83,20 @@ public:
   static void thread_broadcast(size_t source_id, void *data, size_t size);
   void thread_send_master(size_t source_id, void *data, size_t size) const;
 
-  // TODO Use kamping
   static void mpi_broadcast(void *data, size_t size);
-  template <typename T> static void mpi_broadcast(T &obj) {
+
+  template <typename T>
+  static void mpi_broadcast(T &obj) {
     if (_num_ranks > 1) {
-      size_t size = master()
-                        ? BinaryStream::serialize(_parallel_buf.data(),
-                                                  _parallel_buf.capacity(), obj)
-                        : 0;
-      mpi_broadcast((void *)&size, sizeof(size_t));
-      mpi_broadcast((void *)_parallel_buf.data(), size);
-      if (!master()) {
+      if (master()) {
+        int const size = BinaryStream::serialize(_parallel_buf.data(),
+                                                 _parallel_buf.capacity(), obj);
+        _kamping->bcast(
+            kamping::send_recv_buf(kamping::Span(_parallel_buf.begin(), size)));
+      } else {
+        int size;
+        _kamping->bcast(kamping::send_recv_buf(_parallel_buf),
+                        kamping::send_recv_count_out(size));
         BinaryStream bs(_parallel_buf.data(), size);
         bs >> obj;
       }
