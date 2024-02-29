@@ -1,14 +1,16 @@
 #ifndef RAXML_PARALLELCONTEXT_HPP_
 #define RAXML_PARALLELCONTEXT_HPP_
 
+#include <functional>
+#include <kamping/collectives/bcast.hpp>
+#include <kamping/collectives/reduce.hpp>
+#include <kamping/communicator.hpp>
+#include <kamping/mpi_ops.hpp>
 #include <memory>
 #include <optional>
 #include <set>
 #include <unordered_map>
 #include <vector>
-
-#include <functional>
-#include <kamping/communicator.hpp>
 
 #include "io/BinaryStream.hpp"
 
@@ -73,6 +75,12 @@ public:
   static size_t threads_per_group() { return num_procs() / _num_groups; }
   static size_t ranks_per_group() { return _num_ranks / _num_groups; }
   static bool coarse_mpi() { return _num_ranks > 1 && _num_groups > 1; }
+
+  template <typename DataType, typename Op>
+  static void mpi_reduce_single(DataType const &data, Op const &op) {
+    _kamping->reduce_single(kamping::send_buf(data),
+                            kamping::op(op, kamping::ops::commutative));
+  }
 
   static void mpi_reduce(double *data, size_t size, MPI_Op op);
   static void mpi_allreduce(double *data, size_t size, MPI_Op op);
