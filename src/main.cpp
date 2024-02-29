@@ -2577,7 +2577,7 @@ void finalize_energy(RaxmlInstance& instance, const CheckpointFile& checkp)
   else
     instance.used_wh = 0;
 
-  ParallelContext::mpi_reduce(&instance.used_wh, 1, PLLMOD_COMMON_REDUCE_SUM);
+  ParallelContext::mpi_reduce(&instance.used_wh, 1, MPI_SUM);
 }
 
 void init_parallel_buffers(const RaxmlInstance& instance)
