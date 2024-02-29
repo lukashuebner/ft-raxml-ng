@@ -17,8 +17,7 @@
 #include "util/EnergyMonitor.hpp"
 
 using namespace std;
-// TODO Shorten to kmp::
-using namespace kamping;
+namespace kmp = kamping;
 
 // This is just a default size; the buffer will be resized later according to
 // #part and #threads
@@ -38,8 +37,8 @@ std::vector<char> ParallelContext::_parallel_buf;
 std::unordered_map<ThreadIDType, ParallelContext>
     ParallelContext::_thread_ctx_map;
 MutexType ParallelContext::mtx;
-std::optional<kamping::BasicCommunicator> ParallelContext::_kamping;
-std::optional<kamping::Environment<>> ParallelContext::_kamping_env;
+std::optional<kmp::BasicCommunicator> ParallelContext::_kamping;
+std::optional<kmp::Environment<>> ParallelContext::_kamping_env;
 
 thread_local size_t ParallelContext::_local_thread_id = 0;
 thread_local ThreadGroup *ParallelContext::_thread_group = nullptr;
@@ -311,8 +310,8 @@ void ParallelContext::thread_reduce(double *data, size_t size, int op) {
 
 void ParallelContext::mpi_reduce(double *data, size_t size, MPI_Op op) {
 #ifdef _RAXML_MPI
-  _kamping->reduce(kamping::send_buf(kamping::Span<double>(data, size)),
-                   kamping::op(op));
+  _kamping->reduce(kmp::send_buf(kmp::Span<double>(data, size)),
+                   kmp::recv_buf(kmp::Span<double>(data, size)), kmp::op(op));
 #else
   RAXML_UNUSED(data);
   RAXML_UNUSED(size);
@@ -351,8 +350,8 @@ void ParallelContext::mpi_allreduce(double *data, size_t size, MPI_Op op) {
     thread_barrier();
 
     if (_thread_id == 0) {
-      _kamping->allreduce(kamping::send_recv_buf(kamping::Span(data, size)),
-                          kamping::op(op));
+      _kamping->allreduce(kmp::send_recv_buf(kmp::Span(data, size)),
+                          kmp::op(op));
     }
 
     if (_thread_group->num_threads > 1) {
@@ -391,7 +390,7 @@ void ParallelContext::mpi_broadcast(void *data, size_t size) {
 #ifdef _RAXML_MPI
   if (_num_ranks > 1)
     _kamping->bcast(send_recv_buf(
-        kamping::Span<std::byte>(reinterpret_cast<std::byte *>(data), size)));
+        kmp::Span<std::byte>(reinterpret_cast<std::byte *>(data), size)));
 #else
   RAXML_UNUSED(data);
   RAXML_UNUSED(size);
@@ -436,22 +435,20 @@ void ParallelContext::mpi_gather_custom(
   UniqueLock lock;
 
   constexpr int root = 0;
-  kamping::Status status;
+  kmp::Status status;
   int recv_count;
 
   if (_kamping->rank() == root) {
     for (size_t rank = 1; rank < _num_ranks; ++rank) {
       _kamping->recv(
-          kamping::source(rank),
-          kamping::recv_buf<kamping::BufferResizePolicy::resize_to_fit>(
-              _parallel_buf),
-          kamping::status_out(status), kamping::recv_count_out(recv_count));
+          kmp::source(rank),
+          kmp::recv_buf<kmp::BufferResizePolicy::resize_to_fit>(_parallel_buf),
+          kmp::status_out(status), kmp::recv_count_out(recv_count));
       process_recv_cb(_parallel_buf.data(), recv_count, status.source());
     }
   } else {
     prepare_send_cb(_parallel_buf.data(), _parallel_buf.size());
-    _kamping->send(kamping::destination(root),
-                   kamping::send_buf(_parallel_buf));
+    _kamping->send(kmp::destination(root), kmp::send_buf(_parallel_buf));
   }
 #else
   RAXML_UNUSED(prepare_send_cb);
