@@ -68,7 +68,6 @@ void ParallelContext::init_mpi(int argc, char *argv[], void *comm) {
     _kamping.emplace();
   }
 
-  // TODO We no longer need these caches
   _rank_id = _kamping->rank();
   _num_ranks = _kamping->size();
   _num_nodes = _kamping->num_numa_nodes();
