@@ -38,6 +38,7 @@ else()
   add_executable(raxml_module ${RAXML_SOURCES})
 endif()
 
+target_compile_features(raxml_module PRIVATE cxx_std_17)
 
 if (USE_LIBPLL_CMAKE)
   target_include_directories(raxml_module PRIVATE ${PLLMOD_EXPORTED_INCLUDE_PATH})
@@ -67,6 +68,8 @@ set(RAXML_LIBS ${RAXML_LIBS} PARENT_SCOPE)
 #message(STATUS "Libs: ${RAXML_LIBS}")
 
 target_link_libraries(raxml_module ${RAXML_LIBS})
+target_link_libraries(raxml_module kamping::kamping)
+
 
 if (BUILD_AS_LIBRARY AND NOT APPLE)
   target_link_libraries(raxml_module gcc_s gcc)

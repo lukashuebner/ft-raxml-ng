@@ -35,13 +35,13 @@ else()
   set(ENABLE_GMP OFF)
 endif()
 
-#set(CMAKE_CXX_STANDARD 14)
-#set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # set these flags globally for all subprojects (libpll etc.)
-set (CMAKE_CXX_FLAGS_DEBUG    "-O3 -g" CACHE INTERNAL "")
+set (CMAKE_CXX_FLAGS_DEBUG    "-Og -g" CACHE INTERNAL "")
 set (CMAKE_CXX_FLAGS_RELEASE  "-O3"    CACHE INTERNAL "")
-set (CMAKE_C_FLAGS_DEBUG    "-O3 -g" CACHE INTERNAL "")
+set (CMAKE_C_FLAGS_DEBUG    "-Og -g" CACHE INTERNAL "")
 set (CMAKE_C_FLAGS_RELEASE  "-O3"    CACHE INTERNAL "")
 
 project (raxml-ng C CXX)
@@ -84,7 +84,7 @@ endif()
 message (STATUS "Building ${CMAKE_BUILD_TYPE}")
 
 set (WARN_FLAGS               "-Wall -Wextra")
-set (CMAKE_CXX_FLAGS          "-std=c++11 ${WARN_FLAGS}")
+set (CMAKE_CXX_FLAGS          "${WARN_FLAGS}")
 
 if (ENABLE_GMP)
 #find_package(GMP REQUIRED)

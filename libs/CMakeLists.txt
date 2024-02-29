@@ -49,3 +49,6 @@ if(USE_TERRAPHAST)
   add_subdirectory(terraphast)
   set(TERRACES_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/terraphast/include PARENT_SCOPE)
 endif()
+
+# Add the KaMPIng library
+add_subdirectory(kamping)
