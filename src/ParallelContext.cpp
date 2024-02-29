@@ -56,25 +56,21 @@ ThreadGroup &ParallelContext::thread_group(size_t id) {
     throw runtime_error("Invalid thread group id: " + to_string(id));
 }
 
-// TODO Use kamping::Environment
 void ParallelContext::init_mpi(int argc, char *argv[], void *comm) {
 #ifdef _RAXML_MPI
   _parallel_buf.resize(PARALLEL_BUF_SIZE);
-  // TODO
-  MPI_Init(&argc, &argv);
-  //_kamping_env.emplace(argc, argv);
   if (comm) {
     _owns_comm = false;
     _kamping.emplace(*(reinterpret_cast<MPI_Comm *>(comm)));
   } else {
     _owns_comm = true;
+    _kamping_env.emplace(argc, argv);
     _kamping.emplace();
   }
 
   // TODO We no longer need these caches
   _rank_id = _kamping->rank();
   _num_ranks = _kamping->size();
-
   _num_nodes = _kamping->num_numa_nodes();
 #else
   RAXML_UNUSED(argc);
@@ -176,7 +172,6 @@ void ParallelContext::finalize(bool force) {
   _threads.clear();
 #endif
 
-// TODO Move the MPI_Init and cleanup operations to KaMPIng
 #ifdef _RAXML_MPI
   if (_owns_comm) {
     if (force) {
@@ -185,9 +180,7 @@ void ParallelContext::finalize(bool force) {
       _kamping->barrier();
     }
 
-    // TODO Use kamping::Environment
-    //_kamping->finalize();
-    MPI_Finalize();
+    _kamping_env.reset();
   } else {
     _kamping->barrier();
   }
