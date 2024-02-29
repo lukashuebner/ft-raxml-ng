@@ -94,6 +94,11 @@ public:
   static void mpi_broadcast(void *data, size_t size);
 
   template <typename T>
+  static void mpi_broadcast_single(T &data) {
+    _kamping->bcast_single(kamping::send_recv_buf(data));
+  }
+
+  template <typename T>
   static void mpi_broadcast(T &obj) {
     if (_num_ranks > 1) {
       if (master()) {
